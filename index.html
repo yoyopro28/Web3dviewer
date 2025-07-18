@@ -234,7 +234,9 @@ function animate() {
     let right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0,1,0)).normalize();
 
     let v = new THREE.Vector3();
-    v.addScaledVector(dir,   -joystickInput.y * joystickInput.force);
+    // Y-Achse nicht mehr invertiert: data.vector.y>0 = Vorwärts
+    v.addScaledVector(dir,   joystickInput.y * joystickInput.force);
+    // X-Achse unverändert: data.vector.x>0 = Rechts
     v.addScaledVector(right,  joystickInput.x * joystickInput.force);
     if (v.length()>1) v.normalize();
     v.multiplyScalar(currentSpeed * delta);
@@ -242,8 +244,8 @@ function animate() {
 
     // Vertikale Bewegung
     if (flying) {
-      if (joystickInput.y < 0) cameraHolder.position.y += currentSpeed * delta;
-      if (joystickInput.y > 0) cameraHolder.position.y -= currentSpeed * delta;
+      if (joystickInput.y > 0) cameraHolder.position.y += currentSpeed * delta;
+      if (joystickInput.y < 0) cameraHolder.position.y -= currentSpeed * delta;
     } else {
       velocityY += gravity * delta;
       let nextY = cameraHolder.position.y + velocityY * delta;
