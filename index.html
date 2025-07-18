@@ -23,6 +23,7 @@
     #menu label { display:block; margin-bottom:0.7em; font-size:1.08em; }
     #menu input[type="range"] { width:90vw; }
     #menu .slider-tip { color:#aaa; font-size:0.95em; margin-bottom:0.6em; }
+    #menu input[type="checkbox"] { transform: scale(1.2); margin-right:0.5em; }
     #menu button {
       background:#3fcf8e; color:#222; border:none; padding:0.7em 2em; border-radius:11px;
       font-size:1em; margin-top:1.2em;
@@ -43,9 +44,13 @@
     <label for="speedSlider">Bewegungsgeschwindigkeit: <span id="speedValue">5</span></label>
     <input type="range" min="1" max="30" step="0.1" id="speedSlider" value="5">
     <div class="slider-tip">(Sprint: <span id="sprintValue">10</span>)</div>
+
     <label for="scaleSlider" style="margin-top:1.4em;">Modell-Scale: <span id="scaleValue">1.00</span></label>
     <input type="range" min="0.01" max="10" step="0.01" id="scaleSlider" value="1">
     <div class="slider-tip"></div>
+
+    <label style="margin-top:1.4em;"><input type="checkbox" id="flyToggle">Flugmodus aktivieren</label>
+
     <button id="resetPosition">Zurück zum Start</button>
     <button id="closeMenu">Schließen</button>
   </div>
@@ -61,13 +66,16 @@
 import * as THREE from 'https://esm.sh/three@0.160.0';
 import { GLTFLoader } from 'https://esm.sh/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
 
-const MODEL_URL = './model.glb'; // Das Modell muss im gleichen Ordner liegen wie diese HTML!
+const MODEL_URL = './model.glb';
 
 let camera, scene, renderer;
 let model, groundMeshes = [];
 let modelScale = 1.0;
 let speed = { base: 5, sprint: 10 };
-let velocityY = 0, flying = true, paused = false, onGround = false;
+let velocityY = 0;
+let flying = false;            // Standardmäßig am Boden
+let paused = false;
+let onGround = false;
 let move = { forward: false, back: false, left: false, right: false, up: false, down: false };
 let yaw = 0, pitch = 0;
 let cameraHolder, cameraPitch;
@@ -86,11 +94,19 @@ const scaleSlider = document.getElementById('scaleSlider');
 const scaleValue = document.getElementById('scaleValue');
 const resetBtn = document.getElementById('resetPosition');
 const closeMenuBtn = document.getElementById('closeMenu');
+const flyToggle = document.getElementById('flyToggle');
 const mobileControls = document.getElementById('mobileControls');
 const btnUp = document.getElementById('btnUp');
 const btnDown = document.getElementById('btnDown');
 const btnMenu = document.getElementById('btnMenu');
 let cameraTouchActive = false, lastTouchX = 0, lastTouchY = 0, touchLookFactor = 0.0027;
+
+// Event-Listener für Sprint (Shift-Taste)
+window.addEventListener('keydown', e => { if (e.key === 'Shift') sprinting = true; });
+window.addEventListener('keyup',   e => { if (e.key === 'Shift') sprinting = false; });
+
+// Fly-Mode Toggle
+flyToggle.addEventListener('change', e => { flying = e.target.checked; });
 
 window.addEventListener('DOMContentLoaded', () => {
   loadingSpinner.style.display = 'block';
@@ -109,9 +125,7 @@ speedSlider.oninput = () => {
   speed.sprint = speed.base * 2;
   updateSpeedUI();
 };
-scaleSlider.oninput = () => {
-  scaleModel(parseFloat(scaleSlider.value));
-};
+scaleSlider.oninput = () => scaleModel(parseFloat(scaleSlider.value));
 resetBtn.onclick = () => resetPosition();
 closeMenuBtn.onclick = () => menu.style.display = 'none';
 
@@ -189,22 +203,18 @@ function startAppWithModel(url) {
       if (child.isMesh) groundMeshes.push(child);
     });
 
-    let spawnX=0, spawnZ=0;
-    if (model) {
-      const box = new THREE.Box3().setFromObject(model);
-      spawnX = (box.min.x + box.max.x) / 2;
-      spawnZ = (box.min.z + box.max.z) / 2;
-    }
+    // Startposition basierend auf Modell-Mitte und Bodenhöhe
+    const box = new THREE.Box3().setFromObject(model);
+    const spawnX = (box.min.x + box.max.x) / 2;
+    const spawnZ = (box.min.z + box.max.z) / 2;
     let rayOrigin = new THREE.Vector3(spawnX, 9999, spawnZ);
     let down = new THREE.Vector3(0, -1, 0);
     let ray = new THREE.Raycaster(rayOrigin, down, 0, 2e4);
     let hits = ray.intersectObjects(groundMeshes, false);
 
     let y = groundLevel;
-    if (hits.length > 0) {
-      y = hits[0].point.y + 1.6;
-    }
-    startPosition = new THREE.Vector3(spawnX, y, spawnZ);
+    if (hits.length > 0) y = hits[0].point.y + 1.6;
+    startPosition.set(spawnX, y, spawnZ);
     cameraHolder.position.copy(startPosition);
   }, undefined, err => {
     loadingSpinner.style.display = 'none';
@@ -220,18 +230,15 @@ function enableMobileControls() {
     color: '#3fcf8e', size: 80
   });
 
-  // *** Neuer, direkter Mapping-Ansatz über data.vector ***
   joystickManager.on('move', (evt, data) => {
-    const vx = data.vector ? data.vector.x : 0;
-    const vy = data.vector ? data.vector.y : 0;
-    const thresh = 0.2; // Schwellwert, um ungewollte Kleinstbewegungen auszublenden
-
+    const vx = data.vector?.x ?? 0;
+    const vy = data.vector?.y ?? 0;
+    const thresh = 0.2;
     move.forward = vy < -thresh;
     move.back    = vy >  thresh;
     move.left    = vx < -thresh;
     move.right   = vx >  thresh;
   });
-
   joystickManager.on('end', () => {
     move.forward = move.back = move.left = move.right = false;
   });
@@ -250,18 +257,16 @@ function enableMobileControls() {
     }
   }, { passive: false });
 
-  // *** Invertierte Touch-Kamera-Steuerung ***
   renderer.domElement.addEventListener('touchmove', function(e) {
     if (!cameraTouchActive) return;
     if (e.touches.length === 1) {
       const dx = e.touches[0].clientX - lastTouchX;
       const dy = e.touches[0].clientY - lastTouchY;
-      // invertiere beide Achsen
       yaw   -= dx * touchLookFactor;
       pitch -= dy * touchLookFactor;
       pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
       cameraHolder.rotation.y = yaw;
-      cameraPitch.rotation.x  = pitch;
+      cameraPitch.rotation.x = pitch;
       lastTouchX = e.touches[0].clientX;
       lastTouchY = e.touches[0].clientY;
       e.preventDefault();
@@ -281,7 +286,7 @@ function animate() {
     let currentSpeed = sprinting ? speed.sprint : speed.base;
     let velocity = new THREE.Vector3();
 
-    // Bewegungsrichtung entlang Blickrichtung!
+    // Bewegungsrichtung entlang Blickrichtung
     let dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
     dir.y = 0;
@@ -297,12 +302,12 @@ function animate() {
 
     cameraHolder.position.add(velocity);
 
-    // Vertikale Bewegung (Fliegen)
-    if (move.up)   cameraHolder.position.y += currentSpeed * delta;
-    if (move.down) cameraHolder.position.y -= currentSpeed * delta;
-
-    // Gravity und Boden
-    if (!flying) {
+    // Vertikale Bewegung (Fly-Mode)
+    if (flying) {
+      if (move.up)   cameraHolder.position.y += currentSpeed * delta;
+      if (move.down) cameraHolder.position.y -= currentSpeed * delta;
+    } else {
+      // Gravity & Boden-Kollision
       velocityY += gravity * delta;
       let nextY = cameraHolder.position.y + velocityY * delta;
       let downRay = new THREE.Raycaster(
