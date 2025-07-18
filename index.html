@@ -245,6 +245,9 @@
     let lastTouchY = 0;
     let touchLookFactor = 0.0022; // Feintuning nach Geschmack!
     let touchMoveThreshold = 10;
+    let touchPitch = 0; // x-Achse (hoch/runter)
+    let touchYaw = 0;   // y-Achse (links/rechts)
+
 
     // UI
     const blocker = document.getElementById('instructions');
@@ -636,24 +639,29 @@
               }
             }, { passive: false });
             renderer.domElement.addEventListener('touchmove', function(e) {
-              if (!cameraTouchActive) return;
-              if (e.touches.length === 1) {
-                let dx = e.touches[0].clientX - lastTouchX;
-                let dy = e.touches[0].clientY - lastTouchY;
-                // Kamera schwenken (Touch-Look):
-                camera.rotation.y -= dx * touchLookFactor;
-                camera.rotation.x -= dy * touchLookFactor;
-                camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
-                controls.getObject().rotation.y = camera.rotation.y;
-                controls.getObject().rotation.x = camera.rotation.x;
-                lastTouchX = e.touches[0].clientX;
-                lastTouchY = e.touches[0].clientY;
-                e.preventDefault();
-              }
-            }, { passive: false });
-            renderer.domElement.addEventListener('touchend', function(e) {
-              cameraTouchActive = false;
-            }, { passive: false });
+  if (!cameraTouchActive) return;
+  if (e.touches.length === 1) {
+    let dx = e.touches[0].clientX - lastTouchX;
+    let dy = e.touches[0].clientY - lastTouchY;
+
+    // Hol das Object3D für PointerLockControls
+    const obj = controls.getObject();
+
+    // TouchYaw (Y-Achse) drehen (links/rechts)
+    touchYaw   = obj.rotation.y - dx * touchLookFactor;
+    // TouchPitch (X-Achse) drehen (hoch/runter), Clamping wie im PointerLock
+    touchPitch = camera.rotation.x - dy * touchLookFactor;
+    touchPitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, touchPitch));
+
+    obj.rotation.y = touchYaw;
+    camera.rotation.x = touchPitch;
+
+    lastTouchX = e.touches[0].clientX;
+    lastTouchY = e.touches[0].clientY;
+    e.preventDefault();
+  }
+}, { passive: false });
+
           }
         }
       }, undefined, err => {
