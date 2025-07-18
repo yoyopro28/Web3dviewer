@@ -41,12 +41,16 @@
 <body>
   <div id="loadingSpinner">Lade Modell ...</div>
   <div id="menu">
-    <label for="speedSlider">Bewegungsgeschwindigkeit: <span id="speedValue">5</span></label>
+    <label for="speedSlider">Bewegungsgeschwindigkeit: <span id="speedValue">5.0</span></label>
     <input type="range" min="1" max="30" step="0.1" id="speedSlider" value="5">
-    <div class="slider-tip">(Sprint: <span id="sprintValue">10</span>)</div>
+    <div class="slider-tip">(Sprint: <span id="sprintValue">10.0</span>)</div>
 
     <label for="scaleSlider" style="margin-top:1.4em;">Modell-Scale: <span id="scaleValue">1.00</span></label>
     <input type="range" min="0.01" max="10" step="0.01" id="scaleSlider" value="1">
+    <div class="slider-tip"></div>
+
+    <label for="lookSlider" style="margin-top:1.4em;">Kamera-Sensitivität: <span id="lookValue">0.0027</span></label>
+    <input type="range" min="0.001" max="0.01" step="0.0001" id="lookSlider" value="0.0027">
     <div class="slider-tip"></div>
 
     <label style="margin-top:1.4em;"><input type="checkbox" id="flyToggle">Flugmodus aktivieren</label>
@@ -87,6 +91,8 @@ const clock = new THREE.Clock();
 let joystickInput = { x: 0, y: 0, force: 0 };
 // separates vertical fly control from joystick
 let verticalInput = 0;
+// look sensitivity factor
+let touchLookFactor = 0.0027;
 
 // UI Elements
 const loadingSpinner = document.getElementById('loadingSpinner');
@@ -96,6 +102,8 @@ const speedValue = document.getElementById('speedValue');
 const sprintValue = document.getElementById('sprintValue');
 const scaleSlider = document.getElementById('scaleSlider');
 const scaleValue = document.getElementById('scaleValue');
+const lookSlider = document.getElementById('lookSlider');
+const lookValue = document.getElementById('lookValue');
 const resetBtn = document.getElementById('resetPosition');
 const closeMenuBtn = document.getElementById('closeMenu');
 const flyToggle = document.getElementById('flyToggle');
@@ -108,11 +116,10 @@ const btnMenu = document.getElementById('btnMenu');
 let cameraTouchActive = false;
 let cameraTouchId = null;
 let lastTouchX = 0, lastTouchY = 0;
-const touchLookFactor = 0.0027;
 
 // Sprint per Shift-Taste
 window.addEventListener('keydown', e => { if (e.key === 'Shift') sprinting = true; });
-window.addEventListener('keyup',   e => { if (e.key === 'Shift') sprinting = false; });
+window.addEventListener('keyup', e => { if (e.key === 'Shift') sprinting = false; });
 // Fly-Mode Toggle
 flyToggle.addEventListener('change', e => { flying = e.target.checked; });
 
@@ -126,6 +133,7 @@ function updateSpeedUI() {
   sprintValue.textContent = speed.sprint.toFixed(1);
 }
 function updateScaleUI() { scaleValue.textContent = modelScale.toFixed(2); }
+function updateLookUI() { lookValue.textContent = touchLookFactor.toFixed(4); }
 
 speedSlider.oninput = () => {
   speed.base = parseFloat(speedSlider.value);
@@ -133,6 +141,10 @@ speedSlider.oninput = () => {
   updateSpeedUI();
 };
 scaleSlider.oninput = () => scaleModel(parseFloat(scaleSlider.value));
+lookSlider.oninput = () => {
+  touchLookFactor = parseFloat(lookSlider.value);
+  updateLookUI();
+};
 resetBtn.onclick = () => resetPosition();
 closeMenuBtn.onclick = () => menu.style.display = 'none';
 
@@ -173,11 +185,10 @@ function startAppWithModel(url) {
 
     mobileControls.style.display = '';
     enableMobileControls();
-    updateSpeedUI();
-    updateScaleUI();
+    updateSpeedUI(); updateScaleUI(); updateLookUI();
     animate();
 
-    window.addEventListener('resize', ()=>{
+    window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth/window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -192,9 +203,7 @@ function startAppWithModel(url) {
     model.position.set(0,0,0); scene.add(model);
 
     groundMeshes = [];
-    gltf.scene.traverse(child => {
-      if (child.isMesh) groundMeshes.push(child);
-    });
+    gltf.scene.traverse(child => { if (child.isMesh) groundMeshes.push(child); });
 
     const box = new THREE.Box3().setFromObject(model);
     const spawnX = (box.min.x + box.max.x)/2;
@@ -215,7 +224,6 @@ function startAppWithModel(url) {
 }
 
 function enableMobileControls() {
-  // Joystick
   const joystickManager = nipplejs.create({
     zone: document.getElementById('joystickZone'),
     mode: 'dynamic',
@@ -232,35 +240,19 @@ function enableMobileControls() {
   });
 
   // ↑-Button: fliegt nach oben
-  btnUp.addEventListener('touchstart', e => {
-    e.preventDefault();
-    verticalInput =  1;
-  }, { passive: false });
-  btnUp.addEventListener('touchend', e => {
-    e.preventDefault();
-    verticalInput =  0;
-  }, { passive: false });
-
+  btnUp.addEventListener('touchstart', e => { e.preventDefault(); verticalInput =  1; }, { passive: false });
+  btnUp.addEventListener('touchend',   e => { e.preventDefault(); verticalInput =  0; }, { passive: false });
   // ↓-Button: fliegt nach unten
-  btnDown.addEventListener('touchstart', e => {
-    e.preventDefault();
-    verticalInput = -1;
-  }, { passive: false });
-  btnDown.addEventListener('touchend', e => {
-    e.preventDefault();
-    verticalInput =  0;
-  }, { passive: false });
+  btnDown.addEventListener('touchstart', e => { e.preventDefault(); verticalInput = -1; }, { passive: false });
+  btnDown.addEventListener('touchend',   e => { e.preventDefault(); verticalInput =  0; }, { passive: false });
 
-  btnMenu.addEventListener('touchend',   e => { e.preventDefault(); menu.style.display='block'; }, { passive:false });
+  btnMenu.addEventListener('touchend',   e => { e.preventDefault(); menu.style.display='block'; }, {passive:false});
 
-  // Kamera‐Touch
   renderer.domElement.addEventListener('touchstart', e => {
     for (let touch of e.changedTouches) {
       if (cameraTouchId === null && touch.clientX > window.innerWidth / 2) {
-        cameraTouchId = touch.identifier;
-        cameraTouchActive = true;
-        lastTouchX = touch.clientX;
-        lastTouchY = touch.clientY;
+        cameraTouchId = touch.identifier; cameraTouchActive = true;
+        lastTouchX = touch.clientX; lastTouchY = touch.clientY;
       }
     }
   }, { passive: false });
@@ -276,8 +268,7 @@ function enableMobileControls() {
         pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
         cameraHolder.rotation.y = yaw;
         cameraPitch.rotation.x = pitch;
-        lastTouchX = touch.clientX;
-        lastTouchY = touch.clientY;
+        lastTouchX = touch.clientX; lastTouchY = touch.clientY;
         e.preventDefault();
       }
     }
@@ -286,8 +277,7 @@ function enableMobileControls() {
   renderer.domElement.addEventListener('touchend', e => {
     for (let touch of e.changedTouches) {
       if (touch.identifier === cameraTouchId) {
-        cameraTouchActive = false;
-        cameraTouchId = null;
+        cameraTouchActive = false; cameraTouchId = null;
       }
     }
   }, { passive: false });
@@ -300,7 +290,7 @@ function animate() {
     const delta = clock.getDelta();
     const currentSpeed = sprinting ? speed.sprint : speed.base;
 
-    // Bewegungsvektor aus analogem Joystick (nur horizontal)
+    // Horizontal movement via joystick
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
     dir.y = 0; dir.normalize();
@@ -313,7 +303,7 @@ function animate() {
     v.multiplyScalar(currentSpeed * delta);
     cameraHolder.position.add(v);
 
-    // Vertikale Bewegung nur über Buttons
+    // Vertical movement only via buttons
     if (flying) {
       cameraHolder.position.y += verticalInput * currentSpeed * delta;
     } else {
@@ -328,9 +318,7 @@ function animate() {
       if (hits.length) {
         surfaceY = hits[0].point.y + 1.6;
         if (nextY <= surfaceY) {
-          nextY = surfaceY;
-          velocityY = 0;
-          onGround = true;
+          nextY = surfaceY; velocityY = 0; onGround = true;
         } else {
           onGround = false;
         }
