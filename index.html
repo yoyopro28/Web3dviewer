@@ -225,13 +225,15 @@
   let dist = data.distance ? data.distance : 0;
   move.forward = move.back = move.left = move.right = false;
   if (dist > 20) {
-    // Korrekte Zuordnung ohne Offset
+    rad -= Math.PI / 2;
+    if (rad < 0) rad += 2 * Math.PI;
     if (rad > Math.PI * 7/4 || rad <= Math.PI * 1/4) move.forward = true; // Oben
     if (rad > Math.PI * 1/4 && rad <= Math.PI * 3/4) move.right = true;   // Rechts
     if (rad > Math.PI * 3/4 && rad <= Math.PI * 5/4) move.back = true;    // Unten
     if (rad > Math.PI * 5/4 && rad <= Math.PI * 7/4) move.left = true;    // Links
   }
 });
+
 
       joystickManager.on('end', () => {
         move.forward = move.back = move.left = move.right = false;
