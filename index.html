@@ -42,7 +42,7 @@
   <script src="https://cdn.jsdelivr.net/npm/nipplejs@0.9.0/dist/nipplejs.min.js"></script>
 </head>
 <body>
-  <div id="uploader">
+  <div id="uploader" style="display:none;">
     <label for="fileInput">Lade dein 3D-Modell hoch</label>
     <span class="tip">Nur .glb / .gltf</span>
     <input type="file" id="fileInput" accept=".glb,.gltf" />
@@ -70,6 +70,9 @@
   <script type="module">
     import * as THREE from 'https://esm.sh/three@0.160.0';
     import { GLTFLoader } from 'https://esm.sh/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+
+    // ---- AUTOMATISCHES MODELL: Passe hier ggf. an! ----
+    const DEFAULT_MODEL_URL = './model.glb'; // Oder z.B. 'https://raw.githubusercontent.com/<user>/<repo>/main/model.glb'
 
     let camera, scene, renderer;
     let model, groundMeshes = [];
@@ -150,43 +153,67 @@
       velocityY = 0;
     }
 
-    function startAppWithModel(url) {
-      // --- Scene/Camera/Renderer basic setup ---
-      scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x222);
+    // ---- WICHTIG: Startmodell direkt laden! ----
+    window.addEventListener('DOMContentLoaded', () => {
+      loadingSpinner.style.display = 'block';
+      startAppWithModel(DEFAULT_MODEL_URL, true);
+    });
 
-      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    function showUploader() {
+      uploader.style.display = '';
+    }
 
-      cameraPitch = new THREE.Object3D();
-      cameraHolder = new THREE.Object3D();
-      cameraPitch.add(camera);
-      cameraHolder.add(cameraPitch);
-      scene.add(cameraHolder);
+    function startAppWithModel(url, isDefault=false) {
+      // Only create scene/cam/renderer on first call!
+      if (!scene) {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x222);
 
-      cameraHolder.position.copy(startPosition);
-      yaw = 0; pitch = 0;
-      cameraPitch.rotation.x = pitch;
-      cameraHolder.rotation.y = yaw;
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 
-      renderer = new THREE.WebGLRenderer({ antialias: true });
-      renderer.setPixelRatio(window.devicePixelRatio);
-      renderer.setSize(window.innerWidth, window.innerHeight, false);
-      document.body.appendChild(renderer.domElement);
+        cameraPitch = new THREE.Object3D();
+        cameraHolder = new THREE.Object3D();
+        cameraPitch.add(camera);
+        cameraHolder.add(cameraPitch);
+        scene.add(cameraHolder);
 
-      // Floor for "ground"
-      let floor = new THREE.Mesh(
-        new THREE.PlaneGeometry(200, 200),
-        new THREE.MeshStandardMaterial({ color: 0x555555 })
-      );
-      floor.rotation.x = -Math.PI / 2;
-      floor.receiveShadow = true;
-      scene.add(floor);
+        cameraHolder.position.copy(startPosition);
+        yaw = 0; pitch = 0;
+        cameraPitch.rotation.x = pitch;
+        cameraHolder.rotation.y = yaw;
 
-      scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
-      let dirLight = new THREE.DirectionalLight(0xffffff, 1);
-      dirLight.position.set(0,200,100); dirLight.castShadow=true;
-      scene.add(dirLight);
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight, false);
+        document.body.appendChild(renderer.domElement);
 
+        let floor = new THREE.Mesh(
+          new THREE.PlaneGeometry(200, 200),
+          new THREE.MeshStandardMaterial({ color: 0x555555 })
+        );
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+        let dirLight = new THREE.DirectionalLight(0xffffff, 1);
+        dirLight.position.set(0,200,100); dirLight.castShadow=true;
+        scene.add(dirLight);
+
+        mobileControls.style.display = '';
+        enableMobileControls();
+        updateSpeedUI();
+        updateScaleUI();
+        animate();
+
+        window.addEventListener('resize', () => {
+          camera.aspect = window.innerWidth / window.innerHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+      }
+      // Modell laden
+      loadingSpinner.style.display = 'block';
       new GLTFLoader().load(url, gltf => {
         loadingSpinner.style.display = 'none';
         if (model) scene.remove(model);
@@ -219,26 +246,17 @@
         startPosition = new THREE.Vector3(spawnX, y, spawnZ);
         cameraHolder.position.copy(startPosition);
 
-        mobileControls.style.display = '';
-        enableMobileControls();
-        updateSpeedUI();
-        updateScaleUI();
-        animate();
+        if (!isDefault) showUploader();
       }, undefined, err => {
         loadingSpinner.style.display = 'none';
         uploadError.textContent = "Fehler beim Laden der Datei!";
         uploadError.style.display = 'block';
-      });
-
-      window.addEventListener('resize', () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
+        showUploader();
       });
     }
 
     function enableMobileControls() {
-      // Joystick
+      // Joystick (Richtung KORRIGIERT!)
       let joystickManager = nipplejs.create({
         zone: document.getElementById('joystickZone'),
         mode: 'static',
@@ -251,7 +269,7 @@
         let dist = data.distance ? data.distance : 0;
         move.forward = move.back = move.left = move.right = false;
         if (dist > 20) {
-          // FPS-typisch: 0 = oben = forward, dann gegen Uhrzeigersinn
+          // Jetzt: 0=oben=vor, dann rechts, unten, links (wie in FPS & üblichen Joystick libs)
           if (rad > Math.PI*1.75 || rad < Math.PI*0.25) move.forward = true;    // oben
           if (rad >= Math.PI*0.25 && rad < Math.PI*0.75) move.right = true;     // rechts
           if (rad >= Math.PI*0.75 && rad < Math.PI*1.25) move.back = true;      // unten
@@ -268,7 +286,7 @@
       btnDown.addEventListener('touchend', e => { e.preventDefault(); move.down = false; }, {passive:false});
       btnMenu.addEventListener('touchend', e => { e.preventDefault(); menu.style.display='block'; }, {passive:false});
 
-      // Kamera-Look auf rechter Bildschirmhälfte
+      // Kamera-Look: Touch-Steuerung *invertiert* (ziehen = dahin gucken!)
       renderer.domElement.addEventListener('touchstart', function(e) {
         if (e.touches.length === 1 && e.touches[0].clientX > window.innerWidth/2) {
           cameraTouchActive = true;
@@ -281,8 +299,9 @@
         if (e.touches.length === 1) {
           let dx = e.touches[0].clientX - lastTouchX;
           let dy = e.touches[0].clientY - lastTouchY;
-          yaw -= dx * touchLookFactor;
-          pitch -= dy * touchLookFactor;
+          // INVERTIERUNG: Nach rechts ziehen = nach rechts schauen
+          yaw += dx * touchLookFactor;
+          pitch += dy * touchLookFactor;
           pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
           cameraHolder.rotation.y = yaw;
           cameraPitch.rotation.x = pitch;
