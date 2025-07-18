@@ -62,7 +62,7 @@
       <button id="btnMenu" style="width:48px;height:48px;border-radius:50%;background:#222;color:#3fcf8e;font-size:1.08em;">≡</button>
     </div>
   </div>
- <script type="module">
+  <script type="module">
 import * as THREE from 'https://esm.sh/three@0.160.0';
 import { GLTFLoader } from 'https://esm.sh/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
 
@@ -85,6 +85,8 @@ const clock = new THREE.Clock();
 
 // Analog Joystick Input
 let joystickInput = { x: 0, y: 0, force: 0 };
+// separates vertical fly control from joystick
+let verticalInput = 0;
 
 // UI Elements
 const loadingSpinner = document.getElementById('loadingSpinner');
@@ -229,11 +231,26 @@ function enableMobileControls() {
     joystickInput.x = joystickInput.y = joystickInput.force = 0;
   });
 
-  // Additional Up/Down buttons
-  btnUp.addEventListener('touchstart', e => { e.preventDefault(); joystickInput.y = -1; }, { passive:false });
-  btnUp.addEventListener('touchend',   e => { e.preventDefault(); joystickInput.y = 0;  }, { passive:false });
-  btnDown.addEventListener('touchstart', e => { e.preventDefault(); joystickInput.y = 1;  }, { passive:false });
-  btnDown.addEventListener('touchend',   e => { e.preventDefault(); joystickInput.y = 0;  }, { passive:false });
+  // ↑-Button: fliegt nach oben
+  btnUp.addEventListener('touchstart', e => {
+    e.preventDefault();
+    verticalInput =  1;
+  }, { passive: false });
+  btnUp.addEventListener('touchend', e => {
+    e.preventDefault();
+    verticalInput =  0;
+  }, { passive: false });
+
+  // ↓-Button: fliegt nach unten
+  btnDown.addEventListener('touchstart', e => {
+    e.preventDefault();
+    verticalInput = -1;
+  }, { passive: false });
+  btnDown.addEventListener('touchend', e => {
+    e.preventDefault();
+    verticalInput =  0;
+  }, { passive: false });
+
   btnMenu.addEventListener('touchend',   e => { e.preventDefault(); menu.style.display='block'; }, { passive:false });
 
   // Kamera‐Touch
@@ -283,7 +300,7 @@ function animate() {
     const delta = clock.getDelta();
     const currentSpeed = sprinting ? speed.sprint : speed.base;
 
-    // Bewegungsvektor aus analogem Joystick
+    // Bewegungsvektor aus analogem Joystick (nur horizontal)
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
     dir.y = 0; dir.normalize();
@@ -296,10 +313,9 @@ function animate() {
     v.multiplyScalar(currentSpeed * delta);
     cameraHolder.position.add(v);
 
-    // Vertikale Bewegung
+    // Vertikale Bewegung nur über Buttons
     if (flying) {
-      if (joystickInput.y > 0) cameraHolder.position.y += currentSpeed * delta;
-      if (joystickInput.y < 0) cameraHolder.position.y -= currentSpeed * delta;
+      cameraHolder.position.y += verticalInput * currentSpeed * delta;
     } else {
       velocityY += gravity * delta;
       let nextY = cameraHolder.position.y + velocityY * delta;
@@ -324,6 +340,6 @@ function animate() {
   }
   renderer.render(scene, camera);
 }
-</script>
+  </script>
 </body>
 </html>
