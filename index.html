@@ -236,7 +236,11 @@ function enableMobileControls() {
     move.forward = move.back = move.left = move.right = false;
   });
 
-  // … btnUp/btnDown/btnMenu bleiben unverändert …
+  btnUp.addEventListener('touchstart', e => { e.preventDefault(); move.up = true; }, {passive:false});
+  btnUp.addEventListener('touchend',   e => { e.preventDefault(); move.up = false; }, {passive:false});
+  btnDown.addEventListener('touchstart', e => { e.preventDefault(); move.down = true; }, {passive:false});
+  btnDown.addEventListener('touchend',   e => { e.preventDefault(); move.down = false; }, {passive:false});
+  btnMenu.addEventListener('touchend',   e => { e.preventDefault(); menu.style.display='block'; }, {passive:false});
 
   renderer.domElement.addEventListener('touchstart', function(e) {
     if (e.touches.length === 1 && e.touches[0].clientX > window.innerWidth/2) {
@@ -269,7 +273,6 @@ function enableMobileControls() {
   }, { passive: false });
 }
 
-
 function animate() {
   requestAnimationFrame(animate);
   if (!renderer || !camera) return;
@@ -286,16 +289,16 @@ function animate() {
     let right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0,1,0)).normalize();
 
     if (move.forward) velocity.add(dir);
-    if (move.back) velocity.addScaledVector(dir, -1);
-    if (move.left) velocity.addScaledVector(right, -1);
-    if (move.right) velocity.add(right);
+    if (move.back)    velocity.addScaledVector(dir, -1);
+    if (move.left)    velocity.addScaledVector(right, -1);
+    if (move.right)   velocity.add(right);
     velocity.normalize();
     velocity.multiplyScalar(currentSpeed * delta);
 
     cameraHolder.position.add(velocity);
 
     // Vertikale Bewegung (Fliegen)
-    if (move.up) cameraHolder.position.y += currentSpeed * delta;
+    if (move.up)   cameraHolder.position.y += currentSpeed * delta;
     if (move.down) cameraHolder.position.y -= currentSpeed * delta;
 
     // Gravity und Boden
