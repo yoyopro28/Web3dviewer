@@ -92,7 +92,6 @@
     const btnMenu = document.getElementById('btnMenu');
     let cameraTouchActive = false, lastTouchX = 0, lastTouchY = 0, touchLookFactor = 0.0027;
 
-    // ---- Startmodell direkt laden! ----
     window.addEventListener('DOMContentLoaded', () => {
       loadingSpinner.style.display = 'block';
       startAppWithModel(MODEL_URL);
@@ -129,7 +128,6 @@
     }
 
     function startAppWithModel(url) {
-      // Only create scene/cam/renderer on first call!
       if (!scene) {
         scene = new THREE.Scene();
         scene.background = new THREE.Color(0x222);
@@ -177,7 +175,6 @@
           renderer.setSize(window.innerWidth, window.innerHeight);
         });
       }
-      // Modell laden
       loadingSpinner.style.display = 'block';
       new GLTFLoader().load(url, gltf => {
         loadingSpinner.style.display = 'none';
@@ -192,7 +189,6 @@
           if (child.isMesh) groundMeshes.push(child);
         });
 
-        // Spawn auf Oberfläche unter Mittelpunkt:
         let spawnX=0, spawnZ=0;
         if (model) {
           const box = new THREE.Box3().setFromObject(model);
@@ -217,7 +213,6 @@
     }
 
     function enableMobileControls() {
-      // Joystick: FPS-Stil, wirklich passend zu Blickrichtung!
       let joystickManager = nipplejs.create({
         zone: document.getElementById('joystickZone'),
         mode: 'static',
@@ -230,13 +225,13 @@
         let dist = data.distance ? data.distance : 0;
         move.forward = move.back = move.left = move.right = false;
         if (dist > 20) {
-          // FPS-typisch: 0=oben=vor, pi/2=rechts, pi=unten, 3pi/2=links (Standard-Richtung der meisten Game-Engines)
-          // Math.atan2(-y, x) => joystick Y ist invertiert -> Y-Achse umdrehen!
-          // nipple.js: 0 = oben, gegen Uhrzeigersinn.
-          if (rad > Math.PI*1.75 || rad < Math.PI*0.25) move.forward = true;    // oben
-          if (rad >= Math.PI*0.25 && rad < Math.PI*0.75) move.right = true;     // rechts
-          if (rad >= Math.PI*0.75 && rad < Math.PI*1.25) move.back = true;      // unten
-          if (rad >= Math.PI*1.25 && rad < Math.PI*1.75) move.left = true;      // links
+          // FIX: Winkel um -90° drehen für FPS-typisches Mapping!
+          let corrected = rad - Math.PI / 2;
+          if (corrected < 0) corrected += 2 * Math.PI;
+          if (corrected > Math.PI*1.75 || corrected < Math.PI*0.25) move.forward = true;
+          if (corrected >= Math.PI*0.25 && corrected < Math.PI*0.75) move.right = true;
+          if (corrected >= Math.PI*0.75 && corrected < Math.PI*1.25) move.back = true;
+          if (corrected >= Math.PI*1.25 && corrected < Math.PI*1.75) move.left = true;
         }
       });
       joystickManager.on('end', () => {
@@ -249,7 +244,6 @@
       btnDown.addEventListener('touchend', e => { e.preventDefault(); move.down = false; }, {passive:false});
       btnMenu.addEventListener('touchend', e => { e.preventDefault(); menu.style.display='block'; }, {passive:false});
 
-      // Kamera-Look: Touch-Steuerung *invertiert* (ziehen = dahin gucken!)
       renderer.domElement.addEventListener('touchstart', function(e) {
         if (e.touches.length === 1 && e.touches[0].clientX > window.innerWidth/2) {
           cameraTouchActive = true;
