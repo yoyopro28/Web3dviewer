@@ -142,7 +142,21 @@
       line-height: 1.5;
       max-width: 340px;
     }
+    /* --- Mobile Joystick/Button Styles --- */
+    #mobileControls {
+      pointer-events: none;
+    }
+    #mobileControls * {
+      pointer-events: auto;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    @media (max-width: 800px) {
+      #menu { min-width: 98vw; max-width:98vw; left:50%; transform:translate(-50%,-50%); }
+      #menu input[type="range"] { width: 85vw; }
+    }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/nipplejs@0.9.0/dist/nipplejs.min.js"></script>
 </head>
 <body>
   <div id="instructions" style="display:none;">Click to start exploring</div>
@@ -188,6 +202,16 @@
     Tab – Menü<br>
     Esc – Menü schließen
   </div>
+  <!-- Mobile Controls Overlay -->
+  <div id="mobileControls" style="display:none;">
+    <div id="joystickZone" style="position:fixed; left:16px; bottom:16px; width:120px; height:120px; z-index:50;"></div>
+    <div style="position:fixed; right:18px; bottom:16px; z-index:50; display:flex; flex-direction:column; gap:14px;">
+      <button id="btnUp" style="width:54px;height:54px;border-radius:50%;background:#3fcf8e;color:#222;font-size:1.5em;border:none;box-shadow:0 4px 16px #2228;">↑</button>
+      <button id="btnDown" style="width:54px;height:54px;border-radius:50%;background:#3fcf8e;color:#222;font-size:1.5em;border:none;box-shadow:0 4px 16px #2228;">↓</button>
+      <button id="btnMenu" style="width:54px;height:54px;border-radius:50%;background:#222;color:#3fcf8e;font-size:1.1em;border:none;box-shadow:0 4px 16px #2228;">≡</button>
+      <button id="btnMode" style="width:54px;height:54px;border-radius:50%;background:#222;color:#3fcf8e;font-size:1.3em;border:none;box-shadow:0 4px 16px #2228;">⟳</button>
+    </div>
+  </div>
   <script type="module">
     import * as THREE from 'https://esm.sh/three@0.160.0';
     import { GLTFLoader } from 'https://esm.sh/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
@@ -230,7 +254,26 @@
     const scaleValue = document.getElementById('scaleValue');
     const loadingSpinner = document.getElementById('loadingSpinner');
     const controlsHint = document.getElementById('controlsHint');
-    
+    // --- Mobile Controls ---
+    const mobileControls = document.getElementById('mobileControls');
+    const btnUp = document.getElementById('btnUp');
+    const btnDown = document.getElementById('btnDown');
+    const btnMenu = document.getElementById('btnMenu');
+    const btnMode = document.getElementById('btnMode');
+    let isMobile = false;
+
+    // --- Mobile Detection ---
+    function checkIfMobile() {
+      return ( 
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
+        || (window.matchMedia && window.matchMedia("(pointer: coarse)").matches)
+      );
+    }
+    if (checkIfMobile()) {
+      isMobile = true;
+      mobileControls.style.display = '';
+      controlsHint.style.display = 'none';
+    }
 
     // --- Slider MouseWheel Support ---
     function sliderWheelHandler(slider, minStep, fineStep, onChange) {
@@ -269,14 +312,13 @@
     function showMenu() {
       menu.style.display = 'block';
       paused = true;
-      controls.unlock();
+      if (!isMobile) controls.unlock();
     }
     function hideMenu() {
       menu.style.display = 'none';
       paused = false;
-      controls.lock();
+      if (!isMobile) controls.lock();
     }
-
     closeMenuBtn.onclick = hideMenu;
     resetBtn.onclick = () => resetPosition();
     speedSlider.oninput = () => {
@@ -293,18 +335,13 @@
     }
     function scaleModelWithAnchor(newScale) {
       if (!loadedModel) return;
-      // 1. "Weltposition" (global) des Modellursprungs merken
       const modelWorldPos = new THREE.Vector3();
       loadedModel.getWorldPosition(modelWorldPos);
-      // 2. Kamera-Bodenpunkt
       const anchorWorld = getCameraFootPos();
-      // 3. Vector vom Modellursprung zum Anker vor dem Skalieren
       const offsetBefore = anchorWorld.clone().sub(modelWorldPos);
-      // 4. Modellursprung nach Skalierung bleibt gleich, aber Offset verändert sich mit Skalierung
       const oldScale = loadedModel.scale.x;
       loadedModel.scale.set(newScale, newScale, newScale);
       const offsetAfter = offsetBefore.clone().multiplyScalar(newScale / oldScale);
-      // Neue Modellposition = anchorWorld - offsetAfter
       const newModelWorldPos = anchorWorld.clone().sub(offsetAfter);
       loadedModel.position.copy(newModelWorldPos);
 
@@ -326,14 +363,11 @@
       scaleSlider.value = modelScale.toFixed(3);
       updateScaleUI();
     }
-
     scaleSlider.oninput = () => {
       scaleModelWithAnchor(parseFloat(scaleSlider.value));
     };
-
     updateSpeedUI();
     updateScaleUI();
-
     sliderWheelHandler(speedSlider, 0.5, 0.1, () => {
       speed.base = parseFloat(speedSlider.value);
       speed.sprint = speed.base * 2;
@@ -342,7 +376,6 @@
     sliderWheelHandler(scaleSlider, 0.05, 0.01, () => {
       scaleModelWithAnchor(parseFloat(scaleSlider.value));
     });
-
     function resetPosition() {
       if (controls && controls.getObject) {
         controls.getObject().position.copy(startPosition);
@@ -368,78 +401,73 @@
       showLoadingSpinner();
       setTimeout(() => startAppWithModel(url), 120);
     };
-
     function showLoadingSpinner() { loadingSpinner.style.display = 'block'; }
     function hideLoadingSpinner() { loadingSpinner.style.display = 'none'; }
 
     // --- Key Events ---
     document.addEventListener('keydown', e => {
-  if (!controls) return;
-
-  // Menü/PointerLock
-  if (e.code === 'Tab') {
-    e.preventDefault();
-    if (!paused) showMenu();
-    return;
-  }
-  if (e.code === 'Escape') {
-    if (menu.style.display === 'block') hideMenu();
-    return;
-  }
-  if (paused) return;
-
-  switch (e.code) {
-    case 'KeyM':
-      mode = (mode === 'creative') ? 'survival' : 'creative';
-      if (mode === 'survival' && controls.getObject().position.y < groundLevel)
-        controls.getObject().position.y = groundLevel;
-      velocityY = 0;
-      sneaking = false;
-      flying = true;
-      updateModeDisplay();
-      return;
-    case 'ArrowUp':
-    case 'KeyW':
-      if (!move.forward) {
-        const now = performance.now();
-        if (now - lastW < sprintThreshold) sprinting = true;
-        lastW = now;
+      if (isMobile) return;
+      if (!controls) return;
+      if (e.code === 'Tab') {
+        e.preventDefault();
+        if (!paused) showMenu();
+        return;
       }
-      move.forward = true;
-      break;
-    case 'ArrowLeft':
-    case 'KeyA': move.left = true; break;
-    case 'ArrowDown':
-    case 'KeyS': move.back = true; break;
-    case 'ArrowRight':
-    case 'KeyD': move.right = true; break;
-    case 'Space':
-      if (mode === 'creative' && !e.repeat) {
-        const now = performance.now();
-        if (now - lastSpaceTime < 350) {
-          flying = !flying;
-          if (!flying) velocityY = 0;
+      if (e.code === 'Escape') {
+        if (menu.style.display === 'block') hideMenu();
+        return;
+      }
+      if (paused) return;
+      switch (e.code) {
+        case 'KeyM':
+          mode = (mode === 'creative') ? 'survival' : 'creative';
+          if (mode === 'survival' && controls.getObject().position.y < groundLevel)
+            controls.getObject().position.y = groundLevel;
+          velocityY = 0;
+          sneaking = false;
+          flying = true;
           updateModeDisplay();
-        }
-        lastSpaceTime = now;
-        if (!flying && onGround) {
-          velocityY = 8.0;
-        }
+          return;
+        case 'ArrowUp':
+        case 'KeyW':
+          if (!move.forward) {
+            const now = performance.now();
+            if (now - lastW < sprintThreshold) sprinting = true;
+            lastW = now;
+          }
+          move.forward = true;
+          break;
+        case 'ArrowLeft':
+        case 'KeyA': move.left = true; break;
+        case 'ArrowDown':
+        case 'KeyS': move.back = true; break;
+        case 'ArrowRight':
+        case 'KeyD': move.right = true; break;
+        case 'Space':
+          if (mode === 'creative' && !e.repeat) {
+            const now = performance.now();
+            if (now - lastSpaceTime < 350) {
+              flying = !flying;
+              if (!flying) velocityY = 0;
+              updateModeDisplay();
+            }
+            lastSpaceTime = now;
+            if (!flying && onGround) {
+              velocityY = 8.0;
+            }
+          }
+          if (mode === 'creative' && flying) move.up = true;
+          if (mode === 'survival' && onGround) velocityY = 8.0;
+          break;
+        case 'ShiftLeft':
+        case 'ShiftRight':
+          if (mode === 'creative') move.down = true;
+          if (mode === 'survival') sneaking = true;
+          break;
       }
-      if (mode === 'creative' && flying) move.up = true;
-      if (mode === 'survival' && onGround) velocityY = 8.0;
-      break;
-    case 'ShiftLeft':
-    case 'ShiftRight':
-      if (mode === 'creative') move.down = true;  // <<< DAS HIER IST DIE WICHTIGE ZEILE
-      if (mode === 'survival') sneaking = true;
-      break;
-  }
-});
-
-
-
+    });
     document.addEventListener('keyup', e => {
+      if (isMobile) return;
       if (!controls) return;
       if (paused) return;
       switch (e.code) {
@@ -489,13 +517,12 @@
 
       controls = new PointerLockControls(camera, document.body);
 
-      blocker.onclick = () => controls.lock();
+      blocker.onclick = () => { if (!isMobile) controls.lock(); };
       controls.addEventListener('lock', () => { blocker.style.display = 'none'; });
       controls.addEventListener('unlock', () => {
         if (paused) menu.style.display = 'block';
         else blocker.style.display = 'block';
       });
-
       scene.add(controls.getObject());
 
       scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
@@ -513,57 +540,51 @@
       scene.add(floor);
 
       new GLTFLoader().load(modelUrl, gltf => {
-  hideLoadingSpinner();
-  if (loadedModel) {
-    loadedModel.traverse(child => {
-      if (child.isMesh) {
-        child.geometry.dispose();
-        if (Array.isArray(child.material)) {
-          for (const mat of child.material) mat.dispose();
-        } else if (child.material) {
-          child.material.dispose();
+        hideLoadingSpinner();
+        if (loadedModel) {
+          loadedModel.traverse(child => {
+            if (child.isMesh) {
+              child.geometry.dispose();
+              if (Array.isArray(child.material)) {
+                for (const mat of child.material) mat.dispose();
+              } else if (child.material) {
+                child.material.dispose();
+              }
+            }
+          });
+          scene.remove(loadedModel);
         }
-      }
-    });
-    scene.remove(loadedModel);
-  }
-  loadedModel = gltf.scene;
-  loadedModel.scale.set(modelScale, modelScale, modelScale);
-  groundMeshes = [];
-  gltf.scene.traverse(child => {
-    if (child.isMesh) groundMeshes.push(child);
-  });
-  scene.add(gltf.scene);
+        loadedModel = gltf.scene;
+        loadedModel.scale.set(modelScale, modelScale, modelScale);
+        groundMeshes = [];
+        gltf.scene.traverse(child => {
+          if (child.isMesh) groundMeshes.push(child);
+        });
+        scene.add(gltf.scene);
 
-  // ---- NEU: Spawn Spieler auf Oberfläche darunter ----
-  // Berechne Mittelpunkt des geladenen Modells als X/Z
-  let spawnX = 0, spawnZ = 0;
-  if (loadedModel) {
-    const box = new THREE.Box3().setFromObject(loadedModel);
-    spawnX = (box.min.x + box.max.x) / 2;
-    spawnZ = (box.min.z + box.max.z) / 2;
-  }
-  // Raycaster von weit oben nach unten
-  const rayOrigin = new THREE.Vector3(spawnX, 9999, spawnZ);
-  const down = new THREE.Vector3(0, -1, 0);
-  const ray = new THREE.Raycaster(rayOrigin, down, 0, 2e4);
-  const hits = ray.intersectObjects(groundMeshes, false);
+        // ---- NEU: Spawn Spieler auf Oberfläche darunter ----
+        let spawnX = 0, spawnZ = 0;
+        if (loadedModel) {
+          const box = new THREE.Box3().setFromObject(loadedModel);
+          spawnX = (box.min.x + box.max.x) / 2;
+          spawnZ = (box.min.z + box.max.z) / 2;
+        }
+        const rayOrigin = new THREE.Vector3(spawnX, 9999, spawnZ);
+        const down = new THREE.Vector3(0, -1, 0);
+        const ray = new THREE.Raycaster(rayOrigin, down, 0, 2e4);
+        const hits = ray.intersectObjects(groundMeshes, false);
 
-  let y = groundLevel;
-  if (hits.length > 0) {
-    y = hits[0].point.y + 1.6; // 1.6 = Augenhöhe
-  }
-  // Kamera-Startposition setzen
-  startPosition = new THREE.Vector3(spawnX, y, spawnZ);
-
-  resetPosition(); // setzt Kamera auf die neue Startposition
-  // ---------------------------------------------------------
-}, undefined, err => {
-  hideLoadingSpinner();
-  uploadError.textContent = "Fehler beim Laden der Datei!";
-  uploadError.style.display = 'block';
-});
-
+        let y = groundLevel;
+        if (hits.length > 0) {
+          y = hits[0].point.y + 1.6;
+        }
+        startPosition = new THREE.Vector3(spawnX, y, spawnZ);
+        resetPosition();
+      }, undefined, err => {
+        hideLoadingSpinner();
+        uploadError.textContent = "Fehler beim Laden der Datei!";
+        uploadError.style.display = 'block';
+      });
 
       window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
@@ -574,6 +595,44 @@
 
       updateModeDisplay();
       animate();
+
+      // --- MOBILE: Joystick + Buttons aktivieren ---
+      if (isMobile) {
+        let joystickManager = nipplejs.create({
+          zone: document.getElementById('joystickZone'),
+          mode: 'static',
+          position: {left: '50%', top: '50%'},
+          color: '#3fcf8e',
+          size: 90
+        });
+
+        joystickManager.on('move', (evt, data) => {
+          let rad = data.angle ? data.angle.radian : 0;
+          let dist = data.distance ? data.distance : 0;
+          move.forward = move.back = move.left = move.right = false;
+          if (dist > 20) {
+            if (rad > Math.PI*1.75 || rad < Math.PI*0.25) move.forward = true;
+            if (rad >= Math.PI*0.25 && rad < Math.PI*0.75) move.right = true;
+            if (rad >= Math.PI*0.75 && rad < Math.PI*1.25) move.back = true;
+            if (rad >= Math.PI*1.25 && rad < Math.PI*1.75) move.left = true;
+          }
+        });
+        joystickManager.on('end', () => {
+          move.forward = move.back = move.left = move.right = false;
+        });
+
+        btnUp.addEventListener('touchstart', e => { e.preventDefault(); move.up = true; }, {passive:false});
+        btnUp.addEventListener('touchend', e => { e.preventDefault(); move.up = false; }, {passive:false});
+        btnDown.addEventListener('touchstart', e => { e.preventDefault(); move.down = true; }, {passive:false});
+        btnDown.addEventListener('touchend', e => { e.preventDefault(); move.down = false; }, {passive:false});
+        btnMenu.addEventListener('touchend', e => { e.preventDefault(); showMenu(); }, {passive:false});
+        btnMode.addEventListener('touchend', e => {
+          e.preventDefault();
+          mode = (mode === 'creative') ? 'survival' : 'creative';
+          updateModeDisplay();
+        }, {passive:false});
+        document.getElementById('instructions').style.display = 'none';
+      }
     }
 
     function animate() {
