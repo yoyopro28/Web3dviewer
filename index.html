@@ -238,6 +238,14 @@
     let modelScale = 1.0;
     let startPosition = new THREE.Vector3(0, groundLevel, 5);
 
+    // --- Kamera Touch Schwenken ---
+    let isMobile = false;
+    let cameraTouchActive = false;
+    let lastTouchX = 0;
+    let lastTouchY = 0;
+    let touchLookFactor = 0.0022; // ggf. feiner einstellen
+    let touchMoveThreshold = 10;
+
     // UI
     const blocker = document.getElementById('instructions');
     const menu = document.getElementById('menu');
@@ -260,7 +268,6 @@
     const btnDown = document.getElementById('btnDown');
     const btnMenu = document.getElementById('btnMenu');
     const btnMode = document.getElementById('btnMode');
-    let isMobile = false;
 
     // --- Mobile Detection ---
     function checkIfMobile() {
@@ -580,6 +587,71 @@
         }
         startPosition = new THREE.Vector3(spawnX, y, spawnZ);
         resetPosition();
+
+        // --- MOBILE: Joystick + Buttons aktivieren ---
+        if (isMobile) {
+          let joystickManager = nipplejs.create({
+            zone: document.getElementById('joystickZone'),
+            mode: 'static',
+            position: {left: '50%', top: '50%'},
+            color: '#3fcf8e',
+            size: 90
+          });
+
+          joystickManager.on('move', (evt, data) => {
+            let rad = data.angle ? data.angle.radian : 0;
+            let dist = data.distance ? data.distance : 0;
+            move.forward = move.back = move.left = move.right = false;
+            if (dist > 20) {
+              if (rad > Math.PI*1.75 || rad < Math.PI*0.25) move.forward = true;
+              if (rad >= Math.PI*0.25 && rad < Math.PI*0.75) move.right = true;
+              if (rad >= Math.PI*0.75 && rad < Math.PI*1.25) move.back = true;
+              if (rad >= Math.PI*1.25 && rad < Math.PI*1.75) move.left = true;
+            }
+          });
+          joystickManager.on('end', () => {
+            move.forward = move.back = move.left = move.right = false;
+          });
+
+          btnUp.addEventListener('touchstart', e => { e.preventDefault(); move.up = true; }, {passive:false});
+          btnUp.addEventListener('touchend', e => { e.preventDefault(); move.up = false; }, {passive:false});
+          btnDown.addEventListener('touchstart', e => { e.preventDefault(); move.down = true; }, {passive:false});
+          btnDown.addEventListener('touchend', e => { e.preventDefault(); move.down = false; }, {passive:false});
+          btnMenu.addEventListener('touchend', e => { e.preventDefault(); showMenu(); }, {passive:false});
+          btnMode.addEventListener('touchend', e => {
+            e.preventDefault();
+            mode = (mode === 'creative') ? 'survival' : 'creative';
+            updateModeDisplay();
+          }, {passive:false});
+          document.getElementById('instructions').style.display = 'none';
+
+          // --- MOBILE: Kamera schwenken per Wischen (Touch-Drag) ---
+          if (renderer && renderer.domElement) {
+            renderer.domElement.addEventListener('touchstart', function(e) {
+              if (e.target.closest('#joystickZone') || e.target.closest('#mobileControls')) return;
+              if (e.touches.length === 1) {
+                cameraTouchActive = true;
+                lastTouchX = e.touches[0].clientX;
+                lastTouchY = e.touches[0].clientY;
+              }
+            }, { passive: false });
+            renderer.domElement.addEventListener('touchmove', function(e) {
+              if (!cameraTouchActive) return;
+              if (e.touches.length === 1) {
+                let dx = e.touches[0].clientX - lastTouchX;
+                let dy = e.touches[0].clientY - lastTouchY;
+                controls.rotateLeft(-dx * touchLookFactor);
+                controls.rotateUp(-dy * touchLookFactor);
+                lastTouchX = e.touches[0].clientX;
+                lastTouchY = e.touches[0].clientY;
+                e.preventDefault();
+              }
+            }, { passive: false });
+            renderer.domElement.addEventListener('touchend', function(e) {
+              cameraTouchActive = false;
+            }, { passive: false });
+          }
+        }
       }, undefined, err => {
         hideLoadingSpinner();
         uploadError.textContent = "Fehler beim Laden der Datei!";
@@ -595,44 +667,6 @@
 
       updateModeDisplay();
       animate();
-
-      // --- MOBILE: Joystick + Buttons aktivieren ---
-      if (isMobile) {
-        let joystickManager = nipplejs.create({
-          zone: document.getElementById('joystickZone'),
-          mode: 'static',
-          position: {left: '50%', top: '50%'},
-          color: '#3fcf8e',
-          size: 90
-        });
-
-        joystickManager.on('move', (evt, data) => {
-          let rad = data.angle ? data.angle.radian : 0;
-          let dist = data.distance ? data.distance : 0;
-          move.forward = move.back = move.left = move.right = false;
-          if (dist > 20) {
-            if (rad > Math.PI*1.75 || rad < Math.PI*0.25) move.forward = true;
-            if (rad >= Math.PI*0.25 && rad < Math.PI*0.75) move.right = true;
-            if (rad >= Math.PI*0.75 && rad < Math.PI*1.25) move.back = true;
-            if (rad >= Math.PI*1.25 && rad < Math.PI*1.75) move.left = true;
-          }
-        });
-        joystickManager.on('end', () => {
-          move.forward = move.back = move.left = move.right = false;
-        });
-
-        btnUp.addEventListener('touchstart', e => { e.preventDefault(); move.up = true; }, {passive:false});
-        btnUp.addEventListener('touchend', e => { e.preventDefault(); move.up = false; }, {passive:false});
-        btnDown.addEventListener('touchstart', e => { e.preventDefault(); move.down = true; }, {passive:false});
-        btnDown.addEventListener('touchend', e => { e.preventDefault(); move.down = false; }, {passive:false});
-        btnMenu.addEventListener('touchend', e => { e.preventDefault(); showMenu(); }, {passive:false});
-        btnMode.addEventListener('touchend', e => {
-          e.preventDefault();
-          mode = (mode === 'creative') ? 'survival' : 'creative';
-          updateModeDisplay();
-        }, {passive:false});
-        document.getElementById('instructions').style.display = 'none';
-      }
     }
 
     function animate() {
