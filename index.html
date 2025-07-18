@@ -220,20 +220,19 @@
         color: '#3fcf8e', size: 80
       });
 
-      joystickManager.on('move', (evt, data) => {
-        let rad = data.angle ? data.angle.radian : 0;
-        let dist = data.distance ? data.distance : 0;
-        move.forward = move.back = move.left = move.right = false;
-        if (dist > 20) {
-          // FIX: Winkel um -90° drehen für FPS-typisches Mapping!
-          let corrected = rad - Math.PI / 2;
-          if (corrected < 0) corrected += 2 * Math.PI;
-          if (corrected > Math.PI*1.75 || corrected < Math.PI*0.25) move.forward = true;
-          if (corrected >= Math.PI*0.25 && corrected < Math.PI*0.75) move.right = true;
-          if (corrected >= Math.PI*0.75 && corrected < Math.PI*1.25) move.back = true;
-          if (corrected >= Math.PI*1.25 && corrected < Math.PI*1.75) move.left = true;
-        }
-      });
+     joystickManager.on('move', (evt, data) => {
+  let rad = data.angle ? data.angle.radian : 0;
+  let dist = data.distance ? data.distance : 0;
+  move.forward = move.back = move.left = move.right = false;
+  if (dist > 20) {
+    // Korrekte Zuordnung ohne Offset
+    if (rad > Math.PI * 7/4 || rad <= Math.PI * 1/4) move.forward = true; // Oben
+    if (rad > Math.PI * 1/4 && rad <= Math.PI * 3/4) move.right = true;   // Rechts
+    if (rad > Math.PI * 3/4 && rad <= Math.PI * 5/4) move.back = true;    // Unten
+    if (rad > Math.PI * 5/4 && rad <= Math.PI * 7/4) move.left = true;    // Links
+  }
+});
+
       joystickManager.on('end', () => {
         move.forward = move.back = move.left = move.right = false;
       });
