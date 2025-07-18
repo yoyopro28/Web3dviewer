@@ -264,14 +264,15 @@
     let modelScale = 1.0;
     let startPosition = new THREE.Vector3(0, groundLevel, 5);
 
-    // --- Kamera Touch Schwenken ---
+    // --- Kamera Touch Schwenken / Yaw-Pitch für Mobile ---
     let isMobile = false;
     let cameraTouchActive = false;
     let lastTouchX = 0;
     let lastTouchY = 0;
     let touchLookFactor = 0.0027; // Für mobile ggf. größer
-    let touchPitch = 0; // x-Achse (hoch/runter)
-    let touchYaw = 0;   // y-Achse (links/rechts)
+    // Mobile FPS-Camera-Struktur:
+    let yawObject = null, pitchObject = null;
+    let touchYaw = 0, touchPitch = 0;
 
     // UI
     const blocker = document.getElementById('instructions');
@@ -307,7 +308,6 @@
       isMobile = true;
       mobileControls.style.display = '';
       controlsHint.style.display = 'none';
-      // Fontgrößen & UI für mobile automatisch anpassen
       document.body.style.fontSize = '1.04em';
     }
 
@@ -365,8 +365,8 @@
 
     // --- Modell skalieren mit Anker unter Kamera + Kamera immer über Boden ---
     function getCameraFootPos() {
-      if (!controls) return new THREE.Vector3(0,0,0);
-      let obj = controls.getObject();
+      if (!controls && !yawObject) return new THREE.Vector3(0,0,0);
+      let obj = isMobile ? yawObject : controls.getObject();
       return new THREE.Vector3(obj.position.x, 0, obj.position.z);
     }
     function scaleModelWithAnchor(newScale) {
@@ -382,7 +382,7 @@
       loadedModel.position.copy(newModelWorldPos);
 
       // Kamera bleibt über Boden!
-      const cameraObj = controls.getObject();
+      const cameraObj = isMobile ? yawObject : controls.getObject();
       const downRay = new THREE.Raycaster(
         cameraObj.position.clone(), new THREE.Vector3(0, -1, 0), 0, 3.5
       );
@@ -413,7 +413,10 @@
       scaleModelWithAnchor(parseFloat(scaleSlider.value));
     });
     function resetPosition() {
-      if (controls && controls.getObject) {
+      if (isMobile && yawObject) {
+        yawObject.position.copy(startPosition);
+        velocityY = 0;
+      } else if (controls && controls.getObject) {
         controls.getObject().position.copy(startPosition);
         velocityY = 0;
       }
@@ -539,6 +542,18 @@
       return ray.intersectObjects(groundMeshes, false).length > 0;
     }
 
+    function setupMobileCameraLook() {
+      // Nur für Mobile! Camera als Kind von yaw/pitchObject
+      if (yawObject) return;
+      scene.remove(camera);
+      yawObject = new THREE.Object3D();
+      pitchObject = new THREE.Object3D();
+      yawObject.add(pitchObject);
+      pitchObject.add(camera);
+      scene.add(yawObject);
+      yawObject.position.copy(startPosition);
+    }
+
     function startAppWithModel(modelUrl) {
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x202020);
@@ -551,15 +566,16 @@
       renderer.setSize(window.innerWidth, window.innerHeight, false);
       document.body.appendChild(renderer.domElement);
 
-      controls = new PointerLockControls(camera, document.body);
-
-      blocker.onclick = () => { if (!isMobile) controls.lock(); };
-      controls.addEventListener('lock', () => { blocker.style.display = 'none'; });
-      controls.addEventListener('unlock', () => {
-        if (paused) menu.style.display = 'block';
-        else blocker.style.display = 'block';
-      });
-      scene.add(controls.getObject());
+      if (!isMobile) {
+        controls = new PointerLockControls(camera, document.body);
+        blocker.onclick = () => { controls.lock(); };
+        controls.addEventListener('lock', () => { blocker.style.display = 'none'; });
+        controls.addEventListener('unlock', () => {
+          if (paused) menu.style.display = 'block';
+          else blocker.style.display = 'block';
+        });
+        scene.add(controls.getObject());
+      }
 
       scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
       const dirLight = new THREE.DirectionalLight(0xffffff, 1);
@@ -617,8 +633,11 @@
         startPosition = new THREE.Vector3(spawnX, y, spawnZ);
         resetPosition();
 
-        // --- MOBILE: Joystick + Buttons aktivieren ---
+        // --- MOBILE: Joystick + Buttons + Kamera-Look ---
         if (isMobile) {
+          setupMobileCameraLook();
+
+          // --- Joystick: Richtungen jetzt KORREKT ---
           let joystickManager = nipplejs.create({
             zone: document.getElementById('joystickZone'),
             mode: 'static',
@@ -632,10 +651,11 @@
             let dist = data.distance ? data.distance : 0;
             move.forward = move.back = move.left = move.right = false;
             if (dist > 20) {
-              if (rad > Math.PI*1.75 || rad < Math.PI*0.25) move.forward = true;
-              if (rad >= Math.PI*0.25 && rad < Math.PI*0.75) move.right = true;
-              if (rad >= Math.PI*0.75 && rad < Math.PI*1.25) move.back = true;
-              if (rad >= Math.PI*1.25 && rad < Math.PI*1.75) move.left = true;
+              // ACHTUNG: Hier sind die Richtungen jetzt korrigiert:
+              if (rad > Math.PI*1.75 || rad < Math.PI*0.25) move.forward = true;    // oben
+              if (rad >= Math.PI*0.25 && rad < Math.PI*0.75) move.left = true;      // links
+              if (rad >= Math.PI*0.75 && rad < Math.PI*1.25) move.back = true;      // unten
+              if (rad >= Math.PI*1.25 && rad < Math.PI*1.75) move.right = true;     // rechts
             }
           });
           joystickManager.on('end', () => {
@@ -654,41 +674,34 @@
           }, {passive:false});
           document.getElementById('instructions').style.display = 'none';
 
-          // --- MOBILE: Kamera schwenken per Wischen (Touch-Drag) NUR Rechte Seite ---
-          if (renderer && renderer.domElement) {
-            renderer.domElement.addEventListener('touchstart', function(e) {
-              // Kamera-Look nur, wenn auf rechter Bildschirmhälfte!
-              if (e.touches.length === 1 && e.touches[0].clientX > window.innerWidth/2) {
-                cameraTouchActive = true;
-                lastTouchX = e.touches[0].clientX;
-                lastTouchY = e.touches[0].clientY;
-                if (controls && controls.getObject) {
-                  const obj = controls.getObject();
-                  touchYaw = obj.rotation.y;
-                  touchPitch = camera.rotation.x;
-                }
-              }
-            }, { passive: false });
-            renderer.domElement.addEventListener('touchmove', function(e) {
-              if (!cameraTouchActive) return;
-              if (e.touches.length === 1) {
-                let dx = e.touches[0].clientX - lastTouchX;
-                let dy = e.touches[0].clientY - lastTouchY;
-                touchYaw -= dx * touchLookFactor;
-                touchPitch -= dy * touchLookFactor;
-                touchPitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, touchPitch));
-                // Set rotations:
-                controls.getObject().rotation.y = touchYaw;
-                camera.rotation.x = touchPitch;
-                lastTouchX = e.touches[0].clientX;
-                lastTouchY = e.touches[0].clientY;
-                e.preventDefault();
-              }
-            }, { passive: false });
-            renderer.domElement.addEventListener('touchend', function(e) {
-              cameraTouchActive = false;
-            }, { passive: false });
-          }
+          // --- Kamera-Look nur rechte Bildschirmhälfte, Yaw/Pitch: ---
+          renderer.domElement.addEventListener('touchstart', function(e) {
+            if (e.touches.length === 1 && e.touches[0].clientX > window.innerWidth/2) {
+              cameraTouchActive = true;
+              lastTouchX = e.touches[0].clientX;
+              lastTouchY = e.touches[0].clientY;
+              touchYaw = yawObject.rotation.y;
+              touchPitch = pitchObject.rotation.x;
+            }
+          }, { passive: false });
+          renderer.domElement.addEventListener('touchmove', function(e) {
+            if (!cameraTouchActive) return;
+            if (e.touches.length === 1) {
+              let dx = e.touches[0].clientX - lastTouchX;
+              let dy = e.touches[0].clientY - lastTouchY;
+              touchYaw -= dx * touchLookFactor;
+              touchPitch -= dy * touchLookFactor;
+              touchPitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, touchPitch));
+              yawObject.rotation.y = touchYaw;
+              pitchObject.rotation.x = touchPitch;
+              lastTouchX = e.touches[0].clientX;
+              lastTouchY = e.touches[0].clientY;
+              e.preventDefault();
+            }
+          }, { passive: false });
+          renderer.domElement.addEventListener('touchend', function(e) {
+            cameraTouchActive = false;
+          }, { passive: false });
         }
       }, undefined, err => {
         hideLoadingSpinner();
@@ -730,29 +743,75 @@
         if (move.left) velocity.x -= currentSpeed * delta;
         if (move.right) velocity.x += currentSpeed * delta;
 
-        if (mode === 'creative') {
-          if (flying) {
-            let currentFlySpeed = sprinting ? speed.sprint : speed.base;
-            let vertical = 0;
-            if (move.up) vertical += currentFlySpeed * delta;
-            if (move.down) vertical -= currentFlySpeed * delta;
-            controls.moveRight(velocity.x);
-            controls.moveForward(-velocity.z);
-            controls.getObject().position.y += vertical;
-            velocityY = 0;
-          } else {
-            controls.moveRight(velocity.x);
-            controls.moveForward(-velocity.z);
+        // ---- DESKTOP-BEWEGUNG ----
+        if (!isMobile) {
+          if (mode === 'creative') {
+            if (flying) {
+              let currentFlySpeed = sprinting ? speed.sprint : speed.base;
+              let vertical = 0;
+              if (move.up) vertical += currentFlySpeed * delta;
+              if (move.down) vertical -= currentFlySpeed * delta;
+              controls.moveRight(velocity.x);
+              controls.moveForward(-velocity.z);
+              controls.getObject().position.y += vertical;
+              velocityY = 0;
+            } else {
+              controls.moveRight(velocity.x);
+              controls.moveForward(-velocity.z);
+              velocityY += gravity * delta;
+              let nextY = controls.getObject().position.y + velocityY * delta;
+              let pos = controls.getObject().position.clone();
+              const downRay = new THREE.Raycaster(
+                new THREE.Vector3(pos.x, pos.y, pos.z), new THREE.Vector3(0, -1, 0), 0, 3.5
+              );
+              const groundHits = downRay.intersectObjects(groundMeshes, false);
+              let surfaceY = groundLevel;
+              if (groundHits.length > 0) {
+                surfaceY = groundHits[0].point.y + 1.6;
+                if (nextY <= surfaceY) {
+                  nextY = surfaceY;
+                  velocityY = 0;
+                  onGround = true;
+                } else {
+                  onGround = false;
+                }
+              }
+              controls.getObject().position.y = nextY;
+            }
+          }
+          else if (mode === 'survival') {
+            let pos = controls.getObject().position.clone();
+            let blocked = {
+              forward: move.forward && checkCollision('forward'),
+              back:    move.back    && checkCollision('back'),
+              left:    move.left    && checkCollision('left'),
+              right:   move.right   && checkCollision('right')
+            };
+            if ((move.left && !blocked.left) || (move.right && !blocked.right)) {
+              controls.moveRight(
+                (blocked.left && move.left ? 0 : 0) +
+                (blocked.right && move.right ? 0 : velocity.x)
+              );
+            } else if (velocity.x !== 0 && !move.left && !move.right) {
+              controls.moveRight(velocity.x);
+            }
+            if ((move.forward && !blocked.forward) || (move.back && !blocked.back)) {
+              controls.moveForward(
+                (blocked.forward && move.forward ? 0 : 0) +
+                (blocked.back && move.back ? 0 : -velocity.z)
+              );
+            } else if (velocity.z !== 0 && !move.forward && !move.back) {
+              controls.moveForward(-velocity.z);
+            }
             velocityY += gravity * delta;
             let nextY = controls.getObject().position.y + velocityY * delta;
-            let pos = controls.getObject().position.clone();
             const downRay = new THREE.Raycaster(
               new THREE.Vector3(pos.x, pos.y, pos.z), new THREE.Vector3(0, -1, 0), 0, 3.5
             );
             const groundHits = downRay.intersectObjects(groundMeshes, false);
-            let surfaceY = groundLevel;
+            let surfaceY = groundLevel - sneakOffset;
             if (groundHits.length > 0) {
-              surfaceY = groundHits[0].point.y + 1.6;
+              surfaceY = groundHits[0].point.y + 1.6 - sneakOffset;
               if (nextY <= surfaceY) {
                 nextY = surfaceY;
                 velocityY = 0;
@@ -764,48 +823,62 @@
             controls.getObject().position.y = nextY;
           }
         }
-        else if (mode === 'survival') {
-          let pos = controls.getObject().position.clone();
-          let blocked = {
-            forward: move.forward && checkCollision('forward'),
-            back:    move.back    && checkCollision('back'),
-            left:    move.left    && checkCollision('left'),
-            right:   move.right   && checkCollision('right')
-          };
-          if ((move.left && !blocked.left) || (move.right && !blocked.right)) {
-            controls.moveRight(
-              (blocked.left && move.left ? 0 : 0) +
-              (blocked.right && move.right ? 0 : velocity.x)
-            );
-          } else if (velocity.x !== 0 && !move.left && !move.right) {
-            controls.moveRight(velocity.x);
-          }
-          if ((move.forward && !blocked.forward) || (move.back && !blocked.back)) {
-            controls.moveForward(
-              (blocked.forward && move.forward ? 0 : 0) +
-              (blocked.back && move.back ? 0 : -velocity.z)
-            );
-          } else if (velocity.z !== 0 && !move.forward && !move.back) {
-            controls.moveForward(-velocity.z);
-          }
-          velocityY += gravity * delta;
-          let nextY = controls.getObject().position.y + velocityY * delta;
-          const downRay = new THREE.Raycaster(
-            new THREE.Vector3(pos.x, pos.y, pos.z), new THREE.Vector3(0, -1, 0), 0, 3.5
-          );
-          const groundHits = downRay.intersectObjects(groundMeshes, false);
-          let surfaceY = groundLevel - sneakOffset;
-          if (groundHits.length > 0) {
-            surfaceY = groundHits[0].point.y + 1.6 - sneakOffset;
-            if (nextY <= surfaceY) {
-              nextY = surfaceY;
+        // ---- MOBILE-BEWEGUNG ----
+        else if (isMobile && yawObject) {
+          // Bewegung auf Basis der Achsen!
+          // Vorwärts: entlang -Z, Rechts: +X
+          yawObject.position.x += velocity.x;
+          yawObject.position.z += -velocity.z;
+          if (mode === 'creative') {
+            if (flying) {
+              let currentFlySpeed = sprinting ? speed.sprint : speed.base;
+              let vertical = 0;
+              if (move.up) vertical += currentFlySpeed * delta;
+              if (move.down) vertical -= currentFlySpeed * delta;
+              yawObject.position.y += vertical;
               velocityY = 0;
-              onGround = true;
             } else {
-              onGround = false;
+              velocityY += gravity * delta;
+              let nextY = yawObject.position.y + velocityY * delta;
+              const downRay = new THREE.Raycaster(
+                new THREE.Vector3(yawObject.position.x, yawObject.position.y, yawObject.position.z),
+                new THREE.Vector3(0, -1, 0), 0, 3.5
+              );
+              const groundHits = downRay.intersectObjects(groundMeshes, false);
+              let surfaceY = groundLevel;
+              if (groundHits.length > 0) {
+                surfaceY = groundHits[0].point.y + 1.6;
+                if (nextY <= surfaceY) {
+                  nextY = surfaceY;
+                  velocityY = 0;
+                  onGround = true;
+                } else {
+                  onGround = false;
+                }
+              }
+              yawObject.position.y = nextY;
             }
+          } else if (mode === 'survival') {
+            velocityY += gravity * delta;
+            let nextY = yawObject.position.y + velocityY * delta;
+            const downRay = new THREE.Raycaster(
+              new THREE.Vector3(yawObject.position.x, yawObject.position.y, yawObject.position.z),
+              new THREE.Vector3(0, -1, 0), 0, 3.5
+            );
+            const groundHits = downRay.intersectObjects(groundMeshes, false);
+            let surfaceY = groundLevel - sneakOffset;
+            if (groundHits.length > 0) {
+              surfaceY = groundHits[0].point.y + 1.6 - sneakOffset;
+              if (nextY <= surfaceY) {
+                nextY = surfaceY;
+                velocityY = 0;
+                onGround = true;
+              } else {
+                onGround = false;
+              }
+            }
+            yawObject.position.y = nextY;
           }
-          controls.getObject().position.y = nextY;
         }
       }
       renderer.render(scene, camera);
