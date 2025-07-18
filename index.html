@@ -222,15 +222,17 @@ function enableMobileControls() {
 
   // *** Neuer, einfacher und robuster Mapping-Ansatz ***
   joystickManager.on('move', (evt, data) => {
-    let dist = data.distance ? data.distance : 0;
-    move.forward = move.back = move.left = move.right = false;
-    if (dist > 20) {
-      if (data.vector.y < -0.5) move.forward = true;
-      if (data.vector.y > 0.5) move.back = true;
-      if (data.vector.x < -0.5) move.left = true;
-      if (data.vector.x > 0.5) move.right = true;
-    }
-  });
+  let dist = data.distance ? data.distance : 0;
+  move.forward = move.back = move.left = move.right = false;
+  if (dist > 20 && data.angle) {
+    const angle = data.angle.degree; // 0 = oben, 90 = rechts, 180 = unten, 270/-90 = links
+    if (angle > 45 && angle <= 135) move.right = true;        // rechts
+    else if (angle > 135 && angle <= 225) move.back = true;   // unten
+    else if (angle > 225 && angle <= 315) move.left = true;   // links
+    else move.forward = true;                                 // oben (rest)
+  }
+});
+
 
   joystickManager.on('end', () => {
     move.forward = move.back = move.left = move.right = false;
