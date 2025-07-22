@@ -1,350 +1,689 @@
 <!DOCTYPE html>
+
 <html lang="en">
+
 <head>
+
   <meta charset="UTF-8" />
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
   <title>Mobile 3D FPS Viewer</title>
+
   <style>
+
     html, body { margin: 0; padding: 0; width:100vw; height:100vh; overflow: hidden; }
+
     body { background: #1d1d1d; }
+
     canvas { display: block; touch-action: none; }
 
     #loadingSpinner {
+
       position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+
       background:rgba(30,30,30,0.85); color:#3fcf8e;
+
       font-family:sans-serif; font-size:1.1em; padding:1.5em 3em; border-radius:18px;
+
       z-index:150;
+
     }
 
-    #menu {
+    #menu { 
+
       position: absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+
       background:rgba(30,30,30,0.98); color:#fff; padding:2em 3vw; border-radius:18px; text-align:center;
+
       font-family:sans-serif; box-shadow: 0 16px 64px rgba(0,0,0,0.35);
+
       z-index:100; min-width:230px; max-width:96vw; display:none;
+
     }
 
     #menu label { display:block; margin-bottom:0.7em; font-size:1.08em; }
-    #menu input[type="range"] { width:90vw; position:relative; z-index:1; }
+
+    #menu input[type="range"] { width:90vw; }
+
     #menu .slider-tip { color:#aaa; font-size:0.95em; margin-bottom:0.6em; }
+
     #menu input[type="checkbox"] { transform: scale(1.2); margin-right:0.5em; }
 
     #menu button {
+
       background:#3fcf8e; color:#222; border:none; padding:0.7em 2em; border-radius:11px;
+
       font-size:1em; margin-top:1.2em;
+
     }
 
-    #menu button:last-child { background:#222; color:#3fcf8e; margin-left:1em; }
+    #menu button:last-child { background:#222; color:#3fcf8e; margin-left:1em;}
 
     #mobileControls { pointer-events:none; }
+
     #mobileControls * { pointer-events:auto; user-select:none; -webkit-user-select:none; }
 
-    .touchSliderOverlay {
-      position: absolute;
-      height: 42px;
-      width: 90vw;
-      z-index:2;
-      top: 0;
-      left: 0;
-      touch-action: none;
+    @media (max-width:600px) {
+
+      #menu { padding:1em 2vw; }
+
+      #menu label { font-size:1em; }
+
     }
 
-    @media (max-width:600px) {
-      #menu { padding:1em 2vw; }
-      #menu label { font-size:1em; }
-    }
   </style>
+
   <script src="https://cdn.jsdelivr.net/npm/nipplejs@0.9.0/dist/nipplejs.min.js"></script>
+
 </head>
+
 <body>
 
   <div id="loadingSpinner">Lade Modell ...</div>
 
   <div id="menu">
+
     <label for="speedSlider">Bewegungsgeschwindigkeit: <span id="speedValue">5</span></label>
-    <div style="position:relative;">
-      <input type="range" min="1" max="30" step="0.1" id="speedSlider" value="5">
-      <div id="speedTouchZone" class="touchSliderOverlay"></div>
-    </div>
+
+    <input type="range" min="1" max="30" step="0.1" id="speedSlider" value="5">
+
     <div class="slider-tip">(Sprint: <span id="sprintValue">10</span>)</div>
 
+
+
     <label for="scaleSlider" style="margin-top:1.4em;">Modell-Scale: <span id="scaleValue">1.00</span></label>
-    <div style="position:relative;">
-      <input type="range" min="0.01" max="10" step="0.01" id="scaleSlider" value="1">
-      <div id="scaleTouchZone" class="touchSliderOverlay"></div>
-    </div>
+
+    <input type="range" min="0.01" max="10" step="0.01" id="scaleSlider" value="1">
+
     <div class="slider-tip"></div>
 
+
+
     <label style="margin-top:1.4em;"><input type="checkbox" id="flyToggle">Flugmodus aktivieren</label>
+
+
+
     <button id="resetPosition">Zurück zum Start</button>
+
     <button id="closeMenu">Schließen</button>
+
   </div>
 
   <div id="mobileControls" style="display:none;">
+
     <div id="joystickZone" style="position:fixed; left:10px; bottom:10px; width:110px; height:110px; z-index:50;"></div>
+
     <div style="position:fixed; right:12px; bottom:12px; z-index:50; display:flex; flex-direction:column; gap:12px;">
+
       <button id="btnUp" style="width:48px;height:48px;border-radius:50%;background:#3fcf8e;color:#222;font-size:1.3em;">↑</button>
+
       <button id="btnDown" style="width:48px;height:48px;border-radius:50%;background:#3fcf8e;color:#222;font-size:1.3em;">↓</button>
+
       <button id="btnMenu" style="width:48px;height:48px;border-radius:50%;background:#222;color:#3fcf8e;font-size:1.08em;">≡</button>
+
     </div>
+
   </div>
 
   <script type="module">
-    import * as THREE from 'https://esm.sh/three@0.160.0';
-    import { GLTFLoader } from 'https://esm.sh/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
 
-    const MODEL_URL = './model.glb';
+import * as THREE from 'https://esm.sh/three@0.160.0';
 
-    let camera, scene, renderer, model;
-    let cameraHolder, cameraPitch;
-    let yaw = 0, pitch = 0;
-    let speed = { base: 5, sprint: 10 };
-    let velocityY = 0;
-    let flying = false;
-    let paused = false;
-    let onGround = false;
-    let modelScale = 1.0;
-    let groundMeshes = [];
-    let groundLevel = 1.6, gravity = -22;
-    let startPosition = new THREE.Vector3(0, groundLevel, 5);
-    const clock = new THREE.Clock();
+import { GLTFLoader } from 'https://esm.sh/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
 
-    let joystickInput = { x: 0, y: 0, force: 0 };
-    let verticalInput = 0;
 
-    const loadingSpinner = document.getElementById('loadingSpinner');
-    const menu = document.getElementById('menu');
-    const speedSlider = document.getElementById('speedSlider');
-    const speedValue = document.getElementById('speedValue');
-    const sprintValue = document.getElementById('sprintValue');
-    const scaleSlider = document.getElementById('scaleSlider');
-    const scaleValue = document.getElementById('scaleValue');
-    const resetBtn = document.getElementById('resetPosition');
-    const closeMenuBtn = document.getElementById('closeMenu');
-    const flyToggle = document.getElementById('flyToggle');
-    const mobileControls = document.getElementById('mobileControls');
-    const btnUp = document.getElementById('btnUp');
-    const btnDown = document.getElementById('btnDown');
-    const btnMenu = document.getElementById('btnMenu');
 
-    let cameraTouchActive = false;
-    let cameraTouchId = null;
-    let lastTouchX = 0, lastTouchY = 0;
-    const touchLookFactor = 0.0027;
+const MODEL_URL = './model.glb';
 
-    window.addEventListener('keydown', e => { if (e.key === 'Shift') sprinting = true; });
-    window.addEventListener('keyup',   e => { if (e.key === 'Shift') sprinting = false; });
-    flyToggle.addEventListener('change', e => { flying = e.target.checked; });
 
-    window.addEventListener('DOMContentLoaded', () => {
-      loadingSpinner.style.display = 'block';
-      startAppWithModel(MODEL_URL);
+
+let camera, scene, renderer;
+
+let model, groundMeshes = [];
+
+let modelScale = 1.0;
+
+let speed = { base: 5, sprint: 10 };
+
+let velocityY = 0;
+
+let flying = false;
+
+let paused = false;
+
+let onGround = false;
+
+let yaw = 0, pitch = 0;
+
+let cameraHolder, cameraPitch;
+
+let sprinting = false;
+
+let groundLevel = 1.6, gravity = -22;
+
+let startPosition = new THREE.Vector3(0, groundLevel, 5);
+
+const clock = new THREE.Clock();
+
+
+
+// Analog Joystick Input
+
+let joystickInput = { x: 0, y: 0, force: 0 };
+
+// separates vertical fly control from joystick
+
+let verticalInput = 0;
+
+
+
+// UI Elements
+
+const loadingSpinner = document.getElementById('loadingSpinner');
+
+const menu = document.getElementById('menu');
+
+const speedSlider = document.getElementById('speedSlider');
+
+const speedValue = document.getElementById('speedValue');
+
+const sprintValue = document.getElementById('sprintValue');
+
+const scaleSlider = document.getElementById('scaleSlider');
+
+const scaleValue = document.getElementById('scaleValue');
+
+const resetBtn = document.getElementById('resetPosition');
+
+const closeMenuBtn = document.getElementById('closeMenu');
+
+const flyToggle = document.getElementById('flyToggle');
+
+const mobileControls = document.getElementById('mobileControls');
+
+const btnUp = document.getElementById('btnUp');
+
+const btnDown = document.getElementById('btnDown');
+
+const btnMenu = document.getElementById('btnMenu');
+
+
+
+// Touch‐Look State
+
+let cameraTouchActive = false;
+
+let cameraTouchId = null;
+
+let lastTouchX = 0, lastTouchY = 0;
+
+const touchLookFactor = 0.0027;
+
+
+
+// Sprint per Shift-Taste
+
+window.addEventListener('keydown', e => { if (e.key === 'Shift') sprinting = true; });
+
+window.addEventListener('keyup',   e => { if (e.key === 'Shift') sprinting = false; });
+
+// Fly-Mode Toggle
+
+flyToggle.addEventListener('change', e => { flying = e.target.checked; });
+
+
+
+window.addEventListener('DOMContentLoaded', () => {
+
+  loadingSpinner.style.display = 'block';
+
+  startAppWithModel(MODEL_URL);
+
+});
+
+
+
+function updateSpeedUI() {
+
+  speedValue.textContent = speed.base.toFixed(1);
+
+  sprintValue.textContent = speed.sprint.toFixed(1);
+
+}
+
+function updateScaleUI() { scaleValue.textContent = modelScale.toFixed(2); }
+
+
+
+speedSlider.oninput = () => {
+
+  speed.base = parseFloat(speedSlider.value);
+
+  speed.sprint = speed.base * 2;
+
+  updateSpeedUI();
+
+};
+
+scaleSlider.oninput = () => scaleModel(parseFloat(scaleSlider.value));
+
+resetBtn.onclick = () => resetPosition();
+
+closeMenuBtn.onclick = () => menu.style.display = 'none';
+
+
+
+function scaleModel(newScale) {
+
+  if (!model) return;
+
+  model.scale.set(newScale, newScale, newScale);
+
+  modelScale = newScale;
+
+  scaleSlider.value = modelScale.toFixed(3);
+
+  updateScaleUI();
+
+}
+
+function resetPosition() {
+
+  cameraHolder.position.copy(startPosition);
+
+  velocityY = 0;
+
+}
+
+
+
+function startAppWithModel(url) {
+
+  if (!scene) {
+
+    scene = new THREE.Scene(); scene.background = new THREE.Color(0x222);
+
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+
+    cameraPitch = new THREE.Object3D(); cameraHolder = new THREE.Object3D();
+
+    cameraPitch.add(camera); cameraHolder.add(cameraPitch); scene.add(cameraHolder);
+
+    cameraHolder.position.copy(startPosition);
+
+    cameraPitch.rotation.x = pitch; cameraHolder.rotation.y = yaw;
+
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+
+    renderer.setPixelRatio(window.devicePixelRatio);
+
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    document.body.appendChild(renderer.domElement);
+
+
+
+    let floor = new THREE.Mesh(
+
+      new THREE.PlaneGeometry(200,200),
+
+      new THREE.MeshStandardMaterial({ color:0x555555 })
+
+    );
+
+    floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; scene.add(floor);
+
+
+
+    scene.add(new THREE.HemisphereLight(0xffffff,0x444444,1));
+
+    let dirLight = new THREE.DirectionalLight(0xffffff,1);
+
+    dirLight.position.set(0,200,100); dirLight.castShadow=true; scene.add(dirLight);
+
+
+
+    mobileControls.style.display = '';
+
+    enableMobileControls();
+
+    updateSpeedUI();
+
+    updateScaleUI();
+
+    animate();
+
+
+
+    window.addEventListener('resize', ()=>{
+
+      camera.aspect = window.innerWidth/window.innerHeight;
+
+      camera.updateProjectionMatrix();
+
+      renderer.setSize(window.innerWidth, window.innerHeight);
+
     });
 
-    function updateSpeedUI() {
-      speedValue.textContent = speed.base.toFixed(1);
-      sprintValue.textContent = speed.sprint.toFixed(1);
-    }
-    function updateScaleUI() {
-      scaleValue.textContent = modelScale.toFixed(2);
-    }
+  }
 
-    speedSlider.oninput = () => {
-      speed.base = parseFloat(speedSlider.value);
-      speed.sprint = speed.base * 2;
-      updateSpeedUI();
-    };
-    scaleSlider.oninput = () => scaleModel(parseFloat(scaleSlider.value));
-    resetBtn.onclick = () => resetPosition();
-    closeMenuBtn.onclick = () => menu.style.display = 'none';
 
-    function resetPosition() {
-      cameraHolder.position.copy(startPosition);
-      velocityY = 0;
-    }
 
-    function scaleModel(newScale) {
-      if (!model) return;
-      model.scale.set(newScale, newScale, newScale);
-      modelScale = newScale;
-      scaleSlider.value = modelScale.toFixed(3);
-      updateScaleUI();
-    }
+  loadingSpinner.style.display = 'block';
 
-    function startAppWithModel(url) {
-      scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x222);
-      camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-      cameraPitch = new THREE.Object3D();
-      cameraHolder = new THREE.Object3D();
-      cameraPitch.add(camera);
-      cameraHolder.add(cameraPitch);
-      scene.add(cameraHolder);
-      cameraHolder.position.copy(startPosition);
+  new GLTFLoader().load(url, gltf => {
 
-      renderer = new THREE.WebGLRenderer({ antialias: true });
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.setPixelRatio(window.devicePixelRatio);
-      document.body.appendChild(renderer.domElement);
+    loadingSpinner.style.display = 'none';
 
-      let floor = new THREE.Mesh(new THREE.PlaneGeometry(200,200), new THREE.MeshStandardMaterial({ color:0x555555 }));
-      floor.rotation.x = -Math.PI/2;
-      floor.receiveShadow = true;
-      scene.add(floor);
+    if (model) scene.remove(model);
 
-      scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
-      let dirLight = new THREE.DirectionalLight(0xffffff, 1);
-      dirLight.position.set(0,200,100);
-      scene.add(dirLight);
+    model = gltf.scene; model.scale.set(modelScale, modelScale, modelScale);
 
-      mobileControls.style.display = '';
-      enableMobileControls();
-      updateSpeedUI();
-      updateScaleUI();
-      animate();
+    model.position.set(0,0,0); scene.add(model);
 
-      window.addEventListener('resize', () => {
-        camera.aspect = window.innerWidth/window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-      });
 
-      new GLTFLoader().load(url, gltf => {
-        loadingSpinner.style.display = 'none';
-        model = gltf.scene;
-        model.scale.set(modelScale, modelScale, modelScale);
-        model.position.set(0, 0, 0);
-        scene.add(model);
 
-        groundMeshes = [];
-        gltf.scene.traverse(child => {
-          if (child.isMesh) groundMeshes.push(child);
-        });
+    groundMeshes = [];
 
-        const box = new THREE.Box3().setFromObject(model);
-        const spawnX = (box.min.x + box.max.x)/2;
-        const spawnZ = (box.min.z + box.max.z)/2;
-        const ray = new THREE.Raycaster(new THREE.Vector3(spawnX, 9999, spawnZ), new THREE.Vector3(0,-1,0), 0, 2e4);
-        const hits = ray.intersectObjects(groundMeshes, false);
-        let y = groundLevel;
-        if (hits.length) y = hits[0].point.y + 1.6;
-        startPosition.set(spawnX, y, spawnZ);
-        cameraHolder.position.copy(startPosition);
-      }, undefined, () => {
-        loadingSpinner.style.display = 'none';
-        alert("Fehler beim Laden der Datei!");
-      });
-    }
+    gltf.scene.traverse(child => {
 
-    function enableMobileControls() {
-      const joystickManager = nipplejs.create({
-        zone: document.getElementById('joystickZone'),
-        mode: 'dynamic',
-        color: '#3fcf8e',
-        size: 80
-      });
+      if (child.isMesh) groundMeshes.push(child);
 
-      joystickManager.on('move', (evt, data) => {
-        joystickInput.x = data.vector.x;
-        joystickInput.y = data.vector.y;
-        joystickInput.force = Math.min(data.force, 1);
-      });
-      joystickManager.on('end', () => {
-        joystickInput.x = joystickInput.y = joystickInput.force = 0;
-      });
+    });
 
-      btnUp.addEventListener('touchstart', e => { e.preventDefault(); verticalInput = 1; }, { passive: false });
-      btnUp.addEventListener('touchend', e => { e.preventDefault(); verticalInput = 0; }, { passive: false });
-      btnDown.addEventListener('touchstart', e => { e.preventDefault(); verticalInput = -1; }, { passive: false });
-      btnDown.addEventListener('touchend', e => { e.preventDefault(); verticalInput = 0; }, { passive: false });
 
-      btnMenu.addEventListener('touchend', e => { e.preventDefault(); menu.style.display='block'; }, { passive: false });
-    }
 
-    function animate() {
-      requestAnimationFrame(animate);
-      if (!renderer || !camera) return;
+    const box = new THREE.Box3().setFromObject(model);
 
-      const delta = clock.getDelta();
-      const currentSpeed = sprinting ? speed.sprint : speed.base;
+    const spawnX = (box.min.x + box.max.x)/2;
 
-      const dir = new THREE.Vector3();
-      camera.getWorldDirection(dir);
-      dir.y = 0; dir.normalize();
-      const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0,1,0)).normalize();
+    const spawnZ = (box.min.z + box.max.z)/2;
 
-      const move = new THREE.Vector3();
-      move.addScaledVector(dir, joystickInput.y * joystickInput.force);
-      move.addScaledVector(right, joystickInput.x * joystickInput.force);
-      if (move.length() > 1) move.normalize();
-      move.multiplyScalar(currentSpeed * delta);
-      cameraHolder.position.add(move);
+    const ray = new THREE.Raycaster(
 
-      if (flying) {
-        cameraHolder.position.y += verticalInput * currentSpeed * delta;
-      } else {
-        velocityY += gravity * delta;
-        let nextY = cameraHolder.position.y + velocityY * delta;
-        const downRay = new THREE.Raycaster(cameraHolder.position, new THREE.Vector3(0,-1,0), 0, 3.5);
-        const hits = downRay.intersectObjects(groundMeshes, false);
-        let surfaceY = groundLevel;
-        if (hits.length) {
-          surfaceY = hits[0].point.y + 1.6;
-          if (nextY <= surfaceY) {
-            nextY = surfaceY;
-            velocityY = 0;
-            onGround = true;
-          } else {
-            onGround = false;
-          }
-        }
-        cameraHolder.position.y = nextY;
+      new THREE.Vector3(spawnX, 9999, spawnZ),
+
+      new THREE.Vector3(0,-1,0), 0, 2e4
+
+    );
+
+    const hits = ray.intersectObjects(groundMeshes, false);
+
+    let y = groundLevel;
+
+    if (hits.length) y = hits[0].point.y + 1.6;
+
+    startPosition.set(spawnX, y, spawnZ);
+
+    cameraHolder.position.copy(startPosition);
+
+  }, undefined, err => {
+
+    loadingSpinner.style.display = 'none';
+
+    alert("Fehler beim Laden der Datei!");
+
+  });
+
+}
+
+
+
+function enableMobileControls() {
+
+  // Joystick
+
+  const joystickManager = nipplejs.create({
+
+    zone: document.getElementById('joystickZone'),
+
+    mode: 'dynamic',
+
+    color: '#3fcf8e',
+
+    size: 80
+
+  });
+
+  joystickManager.on('move', (evt, data) => {
+
+    joystickInput.x = data.vector.x;
+
+    joystickInput.y = data.vector.y;
+
+    joystickInput.force = Math.min(data.force, 1);
+
+  });
+
+  joystickManager.on('end', () => {
+
+    joystickInput.x = joystickInput.y = joystickInput.force = 0;
+
+  });
+
+
+
+  // ↑-Button: fliegt nach oben
+
+  btnUp.addEventListener('touchstart', e => {
+
+    e.preventDefault();
+
+    verticalInput =  1;
+
+  }, { passive: false });
+
+  btnUp.addEventListener('touchend', e => {
+
+    e.preventDefault();
+
+    verticalInput =  0;
+
+  }, { passive: false });
+
+
+
+  // ↓-Button: fliegt nach unten
+
+  btnDown.addEventListener('touchstart', e => {
+
+    e.preventDefault();
+
+    verticalInput = -1;
+
+  }, { passive: false });
+
+  btnDown.addEventListener('touchend', e => {
+
+    e.preventDefault();
+
+    verticalInput =  0;
+
+  }, { passive: false });
+
+
+
+  btnMenu.addEventListener('touchend',   e => { e.preventDefault(); menu.style.display='block'; }, { passive:false });
+
+
+
+  // Kamera‐Touch
+
+  renderer.domElement.addEventListener('touchstart', e => {
+
+    for (let touch of e.changedTouches) {
+
+      if (cameraTouchId === null && touch.clientX > window.innerWidth / 2) {
+
+        cameraTouchId = touch.identifier;
+
+        cameraTouchActive = true;
+
+        lastTouchX = touch.clientX;
+
+        lastTouchY = touch.clientY;
+
       }
 
-      renderer.render(scene, camera);
     }
 
-    // Feinfühlige Touch-Steuerung (nur auf Touchgeräten)
-    function setupTouchSliderOverlay(slider, overlayId, onUpdate) {
-      const overlay = document.getElementById(overlayId);
-      let startX = 0, startY = 0, baseValue = 0;
+  }, { passive: false });
 
-      overlay.addEventListener('touchstart', e => {
-        const t = e.touches[0];
-        startX = t.clientX;
-        startY = t.clientY;
-        baseValue = parseFloat(slider.value);
-      }, { passive: true });
 
-      overlay.addEventListener('touchmove', e => {
+
+  renderer.domElement.addEventListener('touchmove', e => {
+
+    if (!cameraTouchActive) return;
+
+    for (let touch of e.changedTouches) {
+
+      if (touch.identifier === cameraTouchId) {
+
+        const dx = touch.clientX - lastTouchX;
+
+        const dy = touch.clientY - lastTouchY;
+
+        yaw   -= dx * touchLookFactor;
+
+        pitch -= dy * touchLookFactor;
+
+        pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
+
+        cameraHolder.rotation.y = yaw;
+
+        cameraPitch.rotation.x = pitch;
+
+        lastTouchX = touch.clientX;
+
+        lastTouchY = touch.clientY;
+
         e.preventDefault();
-        const t = e.touches[0];
-        const dx = t.clientX - startX;
-        const dy = t.clientY - startY;
-        const sensitivity = Math.max(1, Math.abs(dy) / 80);
-        const percent = dx / slider.offsetWidth;
-        const range = parseFloat(slider.max) - parseFloat(slider.min);
-        let newValue = baseValue + percent * range / sensitivity;
-        newValue = Math.min(parseFloat(slider.max), Math.max(parseFloat(slider.min), newValue));
-        slider.value = newValue;
-        if (onUpdate) onUpdate(parseFloat(slider.value));
-      }, { passive: false });
 
-      overlay.addEventListener('touchend', () => {
-        startX = startY = 0;
-      });
+      }
+
     }
 
-    if ('ontouchstart' in window) {
-      setupTouchSliderOverlay(speedSlider, 'speedTouchZone', val => {
-        speed.base = val;
-        speed.sprint = val * 2;
-        updateSpeedUI();
-      });
+  }, { passive: false });
 
-      setupTouchSliderOverlay(scaleSlider, 'scaleTouchZone', val => {
-        scaleModel(val);
-      });
+
+
+  renderer.domElement.addEventListener('touchend', e => {
+
+    for (let touch of e.changedTouches) {
+
+      if (touch.identifier === cameraTouchId) {
+
+        cameraTouchActive = false;
+
+        cameraTouchId = null;
+
+      }
+
     }
+
+  }, { passive: false });
+
+}
+
+
+
+function animate() {
+
+  requestAnimationFrame(animate);
+
+  if (!renderer || !camera) return;
+
+  if (!paused) {
+
+    const delta = clock.getDelta();
+
+    const currentSpeed = sprinting ? speed.sprint : speed.base;
+
+
+
+    // Bewegungsvektor aus analogem Joystick (nur horizontal)
+
+    const dir = new THREE.Vector3();
+
+    camera.getWorldDirection(dir);
+
+    dir.y = 0; dir.normalize();
+
+    const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0,1,0)).normalize();
+
+
+
+    const v = new THREE.Vector3();
+
+    v.addScaledVector(dir,   joystickInput.y * joystickInput.force);
+
+    v.addScaledVector(right, joystickInput.x * joystickInput.force);
+
+    if (v.length() > 1) v.normalize();
+
+    v.multiplyScalar(currentSpeed * delta);
+
+    cameraHolder.position.add(v);
+
+
+
+    // Vertikale Bewegung nur über Buttons
+
+    if (flying) {
+
+      cameraHolder.position.y += verticalInput * currentSpeed * delta;
+
+    } else {
+
+      velocityY += gravity * delta;
+
+      let nextY = cameraHolder.position.y + velocityY * delta;
+
+      const downRay = new THREE.Raycaster(
+
+        new THREE.Vector3(cameraHolder.position.x, cameraHolder.position.y, cameraHolder.position.z),
+
+        new THREE.Vector3(0,-1,0), 0, 3.5
+
+      );
+
+      const hits = downRay.intersectObjects(groundMeshes, false);
+
+      let surfaceY = groundLevel;
+
+      if (hits.length) {
+
+        surfaceY = hits[0].point.y + 1.6;
+
+        if (nextY <= surfaceY) {
+
+          nextY = surfaceY;
+
+          velocityY = 0;
+
+          onGround = true;
+
+        } else {
+
+          onGround = false;
+
+        }
+
+      }
+
+      cameraHolder.position.y = nextY;
+
+    }
+
+  }
+
+  renderer.render(scene, camera);
+
+}
+
   </script>
+
 </body>
+
 </html>
